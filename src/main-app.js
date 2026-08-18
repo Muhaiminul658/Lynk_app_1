@@ -2071,9 +2071,9 @@ function createPostCard(post, user) {
 
     card.innerHTML = `
         <div class="ig-post-header">
-            <div class="flex items-center gap-3 cursor-pointer user-header-trigger">
-                <img src="${user.photoURL || DEFAULT_AVATAR}" class="w-8 h-8 rounded-full object-cover" />
-                <div>
+            <div class="flex items-center gap-3">
+                <img src="${user.photoURL || DEFAULT_AVATAR}" class="post-avatar-click w-8 h-8 rounded-full object-cover cursor-pointer hover:ring-2 hover:ring-[#1877f2] transition" title="View photo" />
+                <div class="cursor-pointer user-header-trigger">
                     <div class="font-bold text-xs flex items-center gap-1">
                         ${escapeHTML(user.nickname || "User")}
                         ${user.verified ? `<span class="verified-badge"><i class="fas fa-check"></i></span>` : ""}
@@ -2123,6 +2123,10 @@ function createPostCard(post, user) {
     `;
 
     card.querySelector(".user-header-trigger")?.addEventListener("click", () => openUserProfileFull(user));
+    card.querySelector(".post-avatar-click")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openProfilePhotoViewer(user, user.photoURL || DEFAULT_AVATAR);
+    });
     
     // Sound button toggle
     const soundBtn = card.querySelector(".video-sound-pill");
@@ -2427,11 +2431,27 @@ function loadStories() {
         const now = Date.now();
         const valid = Object.values(data).filter(st => st.expiresAt > now && st.uid !== currentUser?.uid);
         const myStories = Object.values(data).filter(st => st.uid === currentUser?.uid && st.expiresAt > now);
+        
+        // Update user's story ring & avatar
+        const yourAvatar = $("your-story-avatar");
+        if (yourAvatar) {
+            yourAvatar.src = currentUserData?.photoURL || DEFAULT_AVATAR;
+        }
+        
         const yourRing = $("your-story-ring");
         if (yourRing) {
-            if (myStories.length > 0) yourRing.innerHTML = `<img src="${myStories[0].imageUrl}" />`;
-            else yourRing.innerHTML = `<div class="story-ring-add"><i class="fas fa-plus"></i></div>`;
+            if (myStories.length > 0) {
+                yourRing.classList.add("has-story");
+            } else {
+                yourRing.classList.remove("has-story");
+            }
         }
+        
+        const createText = $("your-story-item")?.querySelector(".create-story-text");
+        if (createText) {
+            createText.textContent = "Your story";
+        }
+
         container.innerHTML = "";
         const userStories = {};
         valid.forEach(st => { if (!userStories[st.uid] || st.createdAt > userStories[st.uid].createdAt) userStories[st.uid] = st; });
@@ -2440,7 +2460,12 @@ function loadStories() {
             if (!user || isBlocked(st.uid) || !canSeeContent(st, st.uid)) continue;
             const item = document.createElement("div");
             item.className = "story-item";
-            item.innerHTML = `<div class="story-ring"><img src="${st.imageUrl}" /></div><span class="story-name">${escapeHTML(user.nickname?.split(" ")[0] || "User")}</span>`;
+            item.innerHTML = `
+                <div class="story-ring">
+                    <img src="${user.photoURL || DEFAULT_AVATAR}" alt="${escapeHTML(user.nickname || "User")}" />
+                </div>
+                <span class="story-name">${escapeHTML(user.nickname?.split(" ")[0] || "User")}</span>
+            `;
             item.onclick = () => openStoryViewer(st.uid);
             container.appendChild(item);
         }
@@ -3289,6 +3314,94 @@ async function renderTeacherWeb(handle) {
     `;
 }
 
+// Facebook-Style Profile Photo Viewer Engine
+function openProfilePhotoViewer(user, photoUrl) {
+    if (!user && !photoUrl) return;
+    const modal = $("fb-photo-viewer-modal");
+    if (!modal) return;
+    
+    const targetUser = user || { nickname: "User", username: "", photoURL: photoUrl || DEFAULT_AVATAR };
+    const displayPhoto = photoUrl || targetUser.photoURL || DEFAULT_AVATAR;
+    
+    const thumb = $("fb-viewer-avatar-thumb");
+    if (thumb) thumb.src = targetUser.photoURL || DEFAULT_AVATAR;
+    
+    const nameEl = $("fb-viewer-name");
+    if (nameEl) {
+        nameEl.innerHTML = `<span>${escapeHTML(targetUser.nickname || "User")}</span>${targetUser.verified ? `<span class="verified-badge"><i class="fas fa-check"></i></span>` : ""}`;
+    }
+    
+    const handleEl = $("fb-viewer-handle");
+    if (handleEl) {
+        handleEl.textContent = `@${targetUser.username || (targetUser.nickname ? targetUser.nickname.toLowerCase().replace(/\s+/g, '') : "user")}`;
+    }
+    
+    const mainImg = $("fb-viewer-main-img");
+    if (mainImg) {
+        mainImg.src = displayPhoto;
+    }
+    
+    const downloadBtn = $("fb-viewer-download-btn");
+    if (downloadBtn) {
+        downloadBtn.href = displayPhoto;
+    }
+    
+    const visitBtn = $("fb-viewer-visit-btn");
+    if (visitBtn) {
+        visitBtn.onclick = () => {
+            modal.classList.remove("active");
+            if (targetUser.uid) {
+                if (currentUser && targetUser.uid === currentUser.uid) showPage("profile");
+                else openUserProfileFull(targetUser);
+            }
+        };
+    }
+    
+    modal.classList.add("active");
+}
+
+function initProfilePhotoViewer() {
+    $("fb-viewer-close-btn")?.addEventListener("click", () => {
+        $("fb-photo-viewer-modal")?.classList.remove("active");
+    });
+    
+    $("fb-photo-viewer-modal")?.addEventListener("click", (e) => {
+        if (e.target.id === "fb-photo-viewer-modal" || e.target.classList.contains("fb-viewer-body")) {
+            $("fb-photo-viewer-modal")?.classList.remove("active");
+        }
+    });
+
+    // Profile page avatar & cover click
+    $("profile-pic")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (currentUserData) {
+            openProfilePhotoViewer(currentUserData, currentUserData.photoURL || DEFAULT_AVATAR);
+        }
+    });
+
+    $("profile-cover")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (currentUserData && currentUserData.coverPhoto) {
+            openProfilePhotoViewer(currentUserData, currentUserData.coverPhoto);
+        }
+    });
+
+    // User profile page avatar & cover click
+    $("user-profile-page-pic")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (viewingUserProfile) {
+            openProfilePhotoViewer(viewingUserProfile, viewingUserProfile.photoURL || DEFAULT_AVATAR);
+        }
+    });
+
+    $("user-profile-page-cover")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (viewingUserProfile && viewingUserProfile.coverPhoto) {
+            openProfilePhotoViewer(viewingUserProfile, viewingUserProfile.coverPhoto);
+        }
+    });
+}
+
 // Global Exports
 window.openTeacherDashboard = openTeacherDashboard;
 window.openTeacherWebByHandle = (handle) => { window._teacherWebHandle = handle; showPage("teacher-web"); };
@@ -3298,7 +3411,9 @@ window.loadSupportMessages = loadSupportMessages;
 window.loadWithdrawHistory = loadWithdrawHistory;
 window.loadTeacherBuilder = loadTeacherBuilder;
 window.renderTeacherWeb = renderTeacherWeb;
+window.openProfilePhotoViewer = openProfilePhotoViewer;
 
 setupStoryModal();
-console.log("Lynk Instagram Edition Active");
+initProfilePhotoViewer();
+console.log("Lynk Pro Edition Active");
 
