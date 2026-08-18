@@ -1195,6 +1195,144 @@ html, body {
 }
 .profile-action-btn.primary:hover { background: var(--ig-blue-hover); }
 
+/* Mention Tags & Highlights System */
+.mention-tag {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 1px 5px;
+  margin: 0 1px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.mention-tag.user-mention {
+  color: #0095f6;
+  background: rgba(0, 149, 246, 0.12);
+}
+.mention-tag.user-mention:hover {
+  background: rgba(0, 149, 246, 0.25);
+  color: #38bdf8;
+  text-decoration: underline;
+}
+.mention-tag.followers-mention {
+  color: #ffffff;
+  background: linear-gradient(135deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+  box-shadow: 0 2px 8px rgba(220, 39, 67, 0.35);
+  animation: mentionGlow 3s infinite alternate ease-in-out;
+}
+@keyframes mentionGlow {
+  0% { box-shadow: 0 2px 8px rgba(220, 39, 67, 0.25); }
+  100% { box-shadow: 0 3px 12px rgba(240, 148, 51, 0.5); }
+}
+
+/* Mention Autocomplete Dropdown */
+.mention-suggestions-dropdown {
+  position: absolute;
+  z-index: 9999;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  max-height: 240px;
+  width: 270px;
+  overflow-y: auto;
+  backdrop-filter: blur(16px);
+  animation: igFadeIn 0.15s ease;
+}
+.mention-suggestions-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-soft);
+}
+.mention-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.mention-suggest-item:hover, .mention-suggest-item.active {
+  background: var(--bg-soft);
+}
+
+/* Notification Badges & Tabs */
+.notif-badge-bubble {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ed4956;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-primary);
+  animation: igPop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.notif-tab {
+  padding: 6px 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-soft);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.notif-tab.active {
+  background: var(--ig-blue);
+  border-color: var(--ig-blue);
+  color: #ffffff;
+}
+.notif-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  transition: all 0.15s ease;
+}
+.notif-item.unread {
+  background: rgba(0, 149, 246, 0.06);
+  border-color: rgba(0, 149, 246, 0.3);
+}
+
+/* Saved Videos Grid Cards */
+.saved-video-card {
+  position: relative;
+  aspect-ratio: 9/16;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.saved-video-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border-color: rgba(0, 149, 246, 0.4);
+}
+.saved-video-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+.saved-video-card:hover img {
+  transform: scale(1.04);
+}
+
 /* Responsive adjustments */
 @media (max-width: 767px) {
   .desktop-only { display: none !important; }

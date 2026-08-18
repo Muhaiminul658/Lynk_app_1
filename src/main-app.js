@@ -479,6 +479,8 @@ onAuthStateChanged(auth, async user => {
         setupStoryModal();
         setupMessageNotifications();
         setupUserNotificationListener();
+        initMentionAutocomplete();
+        setupProfileTabs();
         loadCourses();
         loadWallet();
         loadTeacherDashboard();
@@ -581,7 +583,8 @@ export function showPage(page, pushState = true) {
     if (page === "feed") { loadFeed(); }
     if (page === "support") loadSupportMessages();
     if (page === "admin" && isAdmin) { loadAdminSupportInbox(); loadVerificationRequests(); loadAdminRechargeCodes(); loadAdminWithdrawals(); }
-    if (page === "profile") renderProfilePosts();
+    if (page === "profile") { renderProfilePosts(); renderProfileSavedVideos(); }
+    if (page === "notifications") loadNotificationsPage();
     if (page === "user-profile" && viewingUserProfile) renderUserProfilePage(viewingUserProfile);
     if (page === "courses") loadCourses();
     if (page === "wallet") { loadWallet(); loadWithdrawHistory(); }
@@ -638,6 +641,16 @@ function setupNavigation() {
     $("settings-logout-btn")?.addEventListener("click", logoutUser);
     $("logout-btn")?.addEventListener("click", logoutUser);
     $("settings-blocked")?.addEventListener("click", () => openBlockedModal());
+    $("notifications-back-btn")?.addEventListener("click", () => {
+        if (navStack.length > 1) { 
+          navStack.pop();
+          const prev = navStack[navStack.length - 1] || "feed";
+          isNavBack = true;
+          showPage(prev, false); 
+        } else { 
+          showPage("feed"); 
+        }
+    });
     $("user-profile-back")?.addEventListener("click", () => {
         if (navStack.length > 1) { 
           navStack.pop();
@@ -1773,22 +1786,692 @@ $("action-clear-chat")?.addEventListener("click", async () => {
     closeActionsSheet();
 });
 
-// Notifications
-function setupUserNotificationListener() {
-    if (!currentUser) return;
-    onValue(ref(db, `userNotifications/${currentUser.uid}`), async s => {
-        if (!s.exists()) return;
-        const items = Object.values(s.val() || {});
-        const unread = items.filter(n => n && !n.read).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        if (!unread.length) return;
-        const n = unread[0];
-        if (window._lastNotifId === n.id) return;
-        window._lastNotifId = n.id;
-        showPushNotification({ icon: n.fromPhoto || DEFAULT_AVATAR, title: n.fromName || "Lynk", body: n.text || "New message" });
-        try { await update(ref(db, `userNotifications/${currentUser.uid}/${n.id}`), { read: true }); } catch (_) {}
+// =========================================================
+// MENTIONS & HIGHLIGHTS ENGINE (@username & @followers)
+// =========================================================
+
+function formatMentionsAndText(rawText) {
+    if (!rawText) return "";
+    let safe = escapeHTML(String(rawText));
+    
+    // Highlight @followers or @follower tag
+    safe = safe.replace(/@(followers|follower)\b/gi, () => {
+        return `<span class="mention-tag followers-mention" title="All Followers Tagged"><i class="fas fa-users mr-1"></i>@followers</span>`;
+    });
+    
+    // Highlight @username tags
+    safe = safe.replace(/@([a-zA-Z0-9_.-]{2,30})/g, (match, uname) => {
+        return `<span class="mention-tag user-mention" data-mention-username="${uname}">@${uname}</span>`;
+    });
+    
+    return safe;
+}
+window.formatMentionsAndText = formatMentionsAndText;
+
+// Global delegated click listener for clicking any @username mention in feed/comments
+document.addEventListener("click", async (e) => {
+    const mention = e.target.closest(".user-mention");
+    if (mention && mention.dataset.mentionUsername) {
+        e.stopPropagation();
+        e.preventDefault();
+        const uname = mention.dataset.mentionUsername.toLowerCase();
+        try {
+            const snap = await get(ref(db, `usernames/${uname}`));
+            if (snap.exists()) {
+                const targetUid = snap.val();
+                const user = await getUserByUID(targetUid);
+                if (user) {
+                    openUserProfileFull(user);
+                    return;
+                }
+            }
+            showToast(`User @${uname} not found`, "info");
+        } catch (_) {
+            showToast(`Could not load profile @${uname}`, "error");
+        }
+    }
+});
+
+async function sendNotificationToUser(targetUid, notifData) {
+    if (!targetUid || !currentUser || targetUid === currentUser.uid) return;
+    try {
+        const nr = push(ref(db, `userNotifications/${targetUid}`));
+        await set(nr, {
+            id: nr.key,
+            read: false,
+            fromUid: currentUser.uid,
+            fromName: currentUserData?.nickname || "User",
+            fromPhoto: currentUserData?.photoURL || DEFAULT_AVATAR,
+            createdAt: serverTimestamp(),
+            ...notifData
+        });
+    } catch (err) {
+        console.error("sendNotificationToUser error:", err);
+    }
+}
+window.sendNotificationToUser = sendNotificationToUser;
+
+async function parseAndSendMentions(text, context = { type: 'post', postId: null }) {
+    if (!text || !currentUser || !currentUserData) return;
+    
+    const isFollowersMention = /@(followers|follower)\b/i.test(text);
+    const userMatches = [...text.matchAll(/@([a-zA-Z0-9_.-]{2,30})/g)].map(m => m[1].toLowerCase()).filter(u => u !== 'followers' && u !== 'follower');
+    const uniqueUsernames = [...new Set(userMatches)];
+    
+    // If @followers mentioned: notify all followers
+    if (isFollowersMention) {
+        try {
+            const fSnap = await get(ref(db, `followers/${currentUser.uid}`));
+            if (fSnap.exists()) {
+                const followerUids = Object.keys(fSnap.val());
+                for (const fUid of followerUids) {
+                    if (fUid === currentUser.uid) continue;
+                    sendNotificationToUser(fUid, {
+                        type: 'mention_followers',
+                        title: `${currentUserData.nickname || 'Someone'} tagged @followers`,
+                        text: text.slice(0, 120),
+                        postId: context.postId || null,
+                        contextType: context.type || 'post'
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("Followers mention notification error:", e);
+        }
+    }
+    
+    // If individual @usernames mentioned: notify them
+    for (const uname of uniqueUsernames) {
+        try {
+            const snap = await get(ref(db, `usernames/${uname}`));
+            if (snap.exists()) {
+                const targetUid = snap.val();
+                if (targetUid !== currentUser.uid) {
+                    sendNotificationToUser(targetUid, {
+                        type: 'mention',
+                        title: `${currentUserData.nickname || 'Someone'} mentioned you`,
+                        text: text.slice(0, 120),
+                        postId: context.postId || null,
+                        contextType: context.type || 'post'
+                    });
+                }
+            }
+        } catch (_) {}
+    }
+}
+window.parseAndSendMentions = parseAndSendMentions;
+
+// =========================================================
+// MENTION AUTOCOMPLETE SYSTEM (@ suggestions dropdown)
+// =========================================================
+
+let activeMentionInput = null;
+let activeMentionStart = -1;
+
+function initMentionAutocomplete() {
+    const popup = $("mention-autocomplete-popup");
+    const list = $("mention-suggestions-list");
+    if (!popup || !list) return;
+
+    // Attach to all present and dynamic text inputs
+    document.addEventListener("input", async (e) => {
+        const target = e.target;
+        if (!target || (!target.matches("input[type='text'], textarea, #post-text, #reel-comment-input, #content-comment-input, .comments-container input") && !target.classList.contains("mentionable"))) {
+            return;
+        }
+
+        const val = target.value || "";
+        const cursor = target.selectionStart || val.length;
+        const textBeforeCursor = val.slice(0, cursor);
+        const lastAt = textBeforeCursor.lastIndexOf("@");
+
+        if (lastAt !== -1 && (lastAt === 0 || /\s/.test(textBeforeCursor[lastAt - 1]))) {
+            const query = textBeforeCursor.slice(lastAt + 1);
+            if (!/\s/.test(query) && query.length <= 20) {
+                activeMentionInput = target;
+                activeMentionStart = lastAt;
+                showMentionSuggestions(query, target);
+                return;
+            }
+        }
+        hideMentionSuggestions();
+    });
+
+    document.addEventListener("click", (e) => {
+        if (!popup.contains(e.target) && e.target !== activeMentionInput) {
+            hideMentionSuggestions();
+        }
     });
 }
 
+async function showMentionSuggestions(query, targetInput) {
+    const popup = $("mention-autocomplete-popup");
+    const list = $("mention-suggestions-list");
+    if (!popup || !list || !targetInput) return;
+
+    const q = query.toLowerCase();
+    const suggestions = [];
+
+    // Always offer @followers as the first premium suggestion
+    if ("followers".includes(q) || "follower".includes(q) || !q) {
+        suggestions.push({
+            isFollowers: true,
+            title: "@followers",
+            subtitle: "Notify all your followers at once 🌟",
+            icon: `<div class="w-8 h-8 rounded-full bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] flex items-center justify-center text-white text-xs shadow-md"><i class="fas fa-users"></i></div>`
+        });
+    }
+
+    // Search users from DB/cache
+    try {
+        const s = await get(ref(db, "users"));
+        if (s.exists()) {
+            const users = Object.values(s.val()).filter(u => u && u.uid !== currentUser?.uid);
+            const matched = users.filter(u => {
+                if (!q) return true;
+                return (u.username || "").toLowerCase().includes(q) || (u.nickname || "").toLowerCase().includes(q);
+            }).slice(0, 7);
+
+            matched.forEach(u => {
+                suggestions.push({
+                    isFollowers: false,
+                    username: u.username || "user",
+                    title: u.nickname || "User",
+                    subtitle: `@${u.username || ""}`,
+                    photo: u.photoURL || DEFAULT_AVATAR,
+                    verified: u.verified
+                });
+            });
+        }
+    } catch (_) {}
+
+    if (!suggestions.length) {
+        hideMentionSuggestions();
+        return;
+    }
+
+    // Position popup near the input
+    const rect = targetInput.getBoundingClientRect();
+    popup.style.top = `${Math.max(10, rect.top - 230 + window.scrollY)}px`;
+    popup.style.left = `${Math.min(window.innerWidth - 280, Math.max(10, rect.left + window.scrollX))}px`;
+    
+    // If input is near the top of the screen, show below input
+    if (rect.top < 240) {
+        popup.style.top = `${rect.bottom + 8 + window.scrollY}px`;
+    }
+
+    list.innerHTML = "";
+    suggestions.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "mention-suggest-item";
+        if (item.isFollowers) {
+            div.innerHTML = `
+                ${item.icon}
+                <div class="flex-1 min-w-0">
+                    <div class="font-bold text-xs text-amber-400 flex items-center gap-1">${item.title} <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">All</span></div>
+                    <div class="text-[10px] text-gray-400 truncate">${item.subtitle}</div>
+                </div>
+            `;
+            div.onclick = (e) => {
+                e.stopPropagation();
+                insertMentionTag("@followers");
+            };
+        } else {
+            div.innerHTML = `
+                <img src="${item.photo}" class="w-8 h-8 rounded-full object-cover border border-[var(--border-color)] flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                    <div class="font-bold text-xs text-[var(--text-primary)] flex items-center gap-1 truncate">
+                        ${escapeHTML(item.title)}
+                        ${item.verified ? `<span class="verified-badge !text-[9px]"><i class="fas fa-check"></i></span>` : ""}
+                    </div>
+                    <div class="text-[10px] text-[#0095f6] truncate">${escapeHTML(item.subtitle)}</div>
+                </div>
+            `;
+            div.onclick = (e) => {
+                e.stopPropagation();
+                insertMentionTag(`@${item.username}`);
+            };
+        }
+        list.appendChild(div);
+    });
+
+    popup.classList.remove("hidden");
+}
+
+function insertMentionTag(tagText) {
+    if (!activeMentionInput || activeMentionStart === -1) return;
+    const val = activeMentionInput.value || "";
+    const cursor = activeMentionInput.selectionStart || val.length;
+    const before = val.slice(0, activeMentionStart);
+    const after = val.slice(cursor);
+    
+    activeMentionInput.value = `${before}${tagText} ${after}`;
+    const newPos = before.length + tagText.length + 1;
+    activeMentionInput.setSelectionRange(newPos, newPos);
+    activeMentionInput.focus();
+    hideMentionSuggestions();
+}
+
+function hideMentionSuggestions() {
+    $("mention-autocomplete-popup")?.classList.add("hidden");
+    activeMentionInput = null;
+    activeMentionStart = -1;
+}
+
+// =========================================================
+// NOTIFICATIONS CENTER & TOP-BAR BADGES
+// =========================================================
+
+let currentNotifFilter = "all";
+
+function setupUserNotificationListener() {
+    if (!currentUser) return;
+
+    // Listen to user notifications
+    onValue(ref(db, `userNotifications/${currentUser.uid}`), s => {
+        updateNotificationsCount();
+        if (s.exists()) {
+            const items = Object.values(s.val() || {});
+            const unread = items.filter(n => n && !n.read).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            if (unread.length > 0) {
+                const latest = unread[0];
+                if (window._lastNotifId !== latest.id && latest.createdAt > (Date.now() - 15000)) {
+                    window._lastNotifId = latest.id;
+                    showPushNotification({
+                        icon: latest.fromPhoto || DEFAULT_AVATAR,
+                        title: latest.title || latest.fromName || "Lynk",
+                        body: latest.text || "You have a new notification",
+                        onClick: () => showPage("notifications")
+                    });
+                }
+            }
+        }
+    });
+
+    // Listen to friend requests
+    onValue(ref(db, `friendRequests/${currentUser.uid}`), () => {
+        updateNotificationsCount();
+    });
+}
+
+async function updateNotificationsCount() {
+    if (!currentUser) return;
+    try {
+        const notifSnap = await get(ref(db, `userNotifications/${currentUser.uid}`));
+        const notifs = notifSnap.exists() ? Object.values(notifSnap.val() || {}) : [];
+        const unreadNotifs = notifs.filter(n => n && !n.read).length;
+
+        const reqSnap = await get(ref(db, `friendRequests/${currentUser.uid}`));
+        const reqCount = reqSnap.exists() ? Object.keys(reqSnap.val() || {}).length : 0;
+
+        const totalUnread = unreadNotifs + reqCount;
+
+        // Top bar mobile badge
+        const topBadge = $("notif-badge-top");
+        if (topBadge) {
+            if (totalUnread > 0) {
+                topBadge.textContent = totalUnread > 99 ? "99+" : totalUnread;
+                topBadge.classList.remove("hidden");
+            } else {
+                topBadge.classList.add("hidden");
+            }
+        }
+
+        // Desktop nav badge
+        const desktopBadge = $("notif-badge-desktop");
+        if (desktopBadge) {
+            if (totalUnread > 0) {
+                desktopBadge.textContent = totalUnread;
+                desktopBadge.classList.remove("hidden");
+            } else {
+                desktopBadge.classList.add("hidden");
+            }
+        }
+
+        // Filter counts
+        const reqBadge = $("notif-requests-count");
+        if (reqBadge) {
+            if (reqCount > 0) {
+                reqBadge.textContent = reqCount;
+                reqBadge.classList.remove("hidden");
+            } else {
+                reqBadge.classList.add("hidden");
+            }
+        }
+
+        const mentionsCount = notifs.filter(n => n && (n.type === 'mention' || n.type === 'mention_followers') && !n.read).length;
+        const mentionsBadge = $("notif-mentions-count");
+        if (mentionsBadge) {
+            if (mentionsCount > 0) {
+                mentionsBadge.textContent = mentionsCount;
+                mentionsBadge.classList.remove("hidden");
+            } else {
+                mentionsBadge.classList.add("hidden");
+            }
+        }
+    } catch (_) {}
+}
+
+async function loadNotificationsPage() {
+    const list = $("notifications-list");
+    if (!list || !currentUser) return;
+    list.innerHTML = `<div class="p-6 text-center text-xs text-gray-500"><i class="fas fa-spinner fa-spin mr-1"></i> Loading notifications…</div>`;
+
+    setupNotificationTabs();
+
+    try {
+        const [notifSnap, reqSnap] = await Promise.all([
+            get(ref(db, `userNotifications/${currentUser.uid}`)),
+            get(ref(db, `friendRequests/${currentUser.uid}`))
+        ]);
+
+        const notifs = notifSnap.exists() ? Object.values(notifSnap.val() || {}) : [];
+        const requests = reqSnap.exists() ? Object.entries(reqSnap.val() || {}) : [];
+
+        // Combine items for unified timeline
+        const allItems = [];
+
+        // Add friend requests
+        requests.forEach(([uid, req]) => {
+            allItems.push({
+                isFriendRequest: true,
+                reqUid: uid,
+                fromUid: uid,
+                fromName: req.fromName || "User",
+                fromPhoto: req.fromPhoto || DEFAULT_AVATAR,
+                title: `${req.fromName || "User"} sent you a friend request`,
+                text: "Wants to connect with you on Lynk",
+                type: "friend_request",
+                createdAt: req.createdAt || Date.now(),
+                read: false
+            });
+        });
+
+        // Add notifications
+        notifs.forEach(n => {
+            if (!n) return;
+            allItems.push({
+                isFriendRequest: false,
+                ...n,
+                createdAt: n.createdAt || Date.now()
+            });
+        });
+
+        // Sort descending
+        allItems.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        // Filter based on active tab
+        let filtered = allItems;
+        if (currentNotifFilter === "requests") {
+            filtered = allItems.filter(i => i.isFriendRequest || i.type === "friend_request");
+        } else if (currentNotifFilter === "mentions") {
+            filtered = allItems.filter(i => i.type === "mention" || i.type === "mention_followers");
+        } else if (currentNotifFilter === "activity") {
+            filtered = allItems.filter(i => i.type === "like" || i.type === "comment" || i.type === "reaction");
+        }
+
+        list.innerHTML = "";
+        if (!filtered.length) {
+            list.innerHTML = `
+                <div class="dark-card p-8 text-center">
+                    <div class="w-12 h-12 rounded-full bg-[var(--bg-soft)] text-gray-400 flex items-center justify-center mx-auto mb-3 text-lg">
+                        <i class="far fa-bell-slash"></i>
+                    </div>
+                    <div class="text-xs font-bold text-[var(--text-primary)]">No notifications here</div>
+                    <div class="text-[11px] text-gray-500 mt-1">When someone mentions you, likes your posts, or sends a friend request, it will appear here.</div>
+                </div>
+            `;
+            return;
+        }
+
+        for (const item of filtered) {
+            const card = document.createElement("div");
+            card.className = `notif-item ${item.read ? '' : 'unread'}`;
+            
+            let iconBadge = `<i class="fas fa-bell text-[#0095f6]"></i>`;
+            if (item.type === "mention_followers") iconBadge = `<i class="fas fa-users text-purple-400"></i>`;
+            else if (item.type === "mention") iconBadge = `<i class="fas fa-at text-blue-400"></i>`;
+            else if (item.type === "like") iconBadge = `<i class="fas fa-heart text-red-500"></i>`;
+            else if (item.type === "comment") iconBadge = `<i class="fas fa-comment text-emerald-400"></i>`;
+            else if (item.isFriendRequest) iconBadge = `<i class="fas fa-user-plus text-[#0095f6]"></i>`;
+
+            card.innerHTML = `
+                <div class="relative flex-shrink-0 cursor-pointer notif-avatar-trigger">
+                    <img src="${item.fromPhoto || DEFAULT_AVATAR}" class="w-10 h-10 rounded-full object-cover border border-[var(--border-color)]" />
+                    <div class="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-color)] flex items-center justify-center text-[10px]">
+                        ${iconBadge}
+                    </div>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-xs leading-snug text-[var(--text-primary)]">
+                        <strong class="font-bold cursor-pointer notif-user-trigger">${escapeHTML(item.fromName || "User")}</strong> 
+                        <span>${escapeHTML(item.title ? item.title.replace(item.fromName, '').trim() : '')}</span>
+                    </div>
+                    ${item.text ? `<div class="text-[11px] text-gray-400 mt-0.5 truncate">${formatMentionsAndText(item.text)}</div>` : ''}
+                    <div class="text-[10px] text-gray-500 mt-1">${formatTimeAgo(item.createdAt)}</div>
+                </div>
+            `;
+
+            // If friend request: add inline Accept & Decline actions
+            if (item.isFriendRequest) {
+                const actions = document.createElement("div");
+                actions.className = "flex items-center gap-1.5 flex-shrink-0";
+                actions.innerHTML = `
+                    <button class="px-3 py-1.5 rounded-lg bg-[#0095f6] hover:bg-[#1877f2] text-white text-xs font-bold transition">Accept</button>
+                    <button class="px-2.5 py-1.5 rounded-lg bg-[var(--bg-soft)] text-gray-400 hover:text-red-400 text-xs font-semibold transition">Decline</button>
+                `;
+                actions.children[0].onclick = async (e) => {
+                    e.stopPropagation();
+                    await acceptFriendRequest(item.reqUid);
+                    loadNotificationsPage();
+                };
+                actions.children[1].onclick = async (e) => {
+                    e.stopPropagation();
+                    await rejectFriendRequest(item.reqUid);
+                    loadNotificationsPage();
+                };
+                card.appendChild(actions);
+            } else if (item.postId) {
+                const viewBtn = document.createElement("button");
+                viewBtn.className = "px-2.5 py-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-soft)] text-xs text-gray-300 font-semibold hover:border-[#0095f6] transition flex-shrink-0";
+                viewBtn.textContent = "View";
+                viewBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    showPage("feed");
+                };
+                card.appendChild(viewBtn);
+            }
+
+            // Click avatar/name to view user
+            card.querySelectorAll(".notif-avatar-trigger, .notif-user-trigger").forEach(el => {
+                el.onclick = async (e) => {
+                    e.stopPropagation();
+                    if (item.fromUid) {
+                        const user = await getUserByUID(item.fromUid);
+                        if (user) openUserProfileFull(user);
+                    }
+                };
+            });
+
+            card.onclick = async () => {
+                if (!item.read && item.id) {
+                    try { await update(ref(db, `userNotifications/${currentUser.uid}/${item.id}`), { read: true }); } catch (_) {}
+                    card.classList.remove("unread");
+                }
+            };
+
+            list.appendChild(card);
+        }
+    } catch (e) {
+        console.error("loadNotificationsPage error:", e);
+        list.innerHTML = `<div class="p-6 text-center text-xs text-red-400">Could not load notifications.</div>`;
+    }
+}
+window.loadNotificationsPage = loadNotificationsPage;
+
+function setupNotificationTabs() {
+    document.querySelectorAll(".notif-tab").forEach(tab => {
+        tab.onclick = () => {
+            document.querySelectorAll(".notif-tab").forEach(t => t.classList.remove("active"));
+            tab.classList.add("active");
+            currentNotifFilter = tab.dataset.tab || "all";
+            loadNotificationsPage();
+        };
+    });
+
+    $("mark-all-read-btn")?.addEventListener("click", async () => {
+        if (!currentUser) return;
+        try {
+            const snap = await get(ref(db, `userNotifications/${currentUser.uid}`));
+            if (snap.exists()) {
+                const updates = {};
+                Object.keys(snap.val()).forEach(k => {
+                    updates[`userNotifications/${currentUser.uid}/${k}/read`] = true;
+                });
+                await update(ref(db), updates);
+                showToast("All marked as read", "success");
+                loadNotificationsPage();
+                updateNotificationsCount();
+            }
+        } catch (_) {}
+    });
+
+    $("clear-notifications-btn")?.addEventListener("click", async () => {
+        if (!currentUser) return;
+        if (!confirm("Clear all notifications?")) return;
+        try {
+            await remove(ref(db, `userNotifications/${currentUser.uid}`));
+            showToast("Notifications cleared", "info");
+            loadNotificationsPage();
+            updateNotificationsCount();
+        } catch (_) {}
+    });
+}
+
+// =========================================================
+// PROFILE NAVIGATION TABS & SAVED VIDEOS SYSTEM
+// =========================================================
+
+function setupProfileTabs() {
+    const tabPosts = $("profile-tab-posts");
+    const tabSaved = $("profile-tab-saved");
+    const contentPosts = $("profile-tab-content-posts");
+    const contentSaved = $("profile-tab-content-saved");
+
+    if (tabPosts && tabSaved && contentPosts && contentSaved) {
+        tabPosts.onclick = () => {
+            tabPosts.className = "flex-1 py-3 text-center text-xs font-bold border-b-2 border-[#0095f6] text-[var(--text-primary)] flex items-center justify-center gap-2 transition";
+            tabSaved.className = "flex-1 py-3 text-center text-xs font-semibold text-gray-400 hover:text-white flex items-center justify-center gap-2 transition";
+            contentPosts.classList.remove("hidden");
+            contentSaved.classList.add("hidden");
+            renderProfilePosts();
+        };
+
+        tabSaved.onclick = () => {
+            tabSaved.className = "flex-1 py-3 text-center text-xs font-bold border-b-2 border-[#0095f6] text-[var(--text-primary)] flex items-center justify-center gap-2 transition";
+            tabPosts.className = "flex-1 py-3 text-center text-xs font-semibold text-gray-400 hover:text-white flex items-center justify-center gap-2 transition";
+            contentSaved.classList.remove("hidden");
+            contentPosts.classList.add("hidden");
+            renderProfileSavedVideos();
+        };
+    }
+}
+
+async function renderProfileSavedVideos() {
+    const grid = $("profile-saved-videos-grid");
+    const badge = $("saved-videos-badge");
+    if (!currentUser) return;
+
+    try {
+        const snap = await get(ref(db, `savedPosts/${currentUser.uid}`));
+        const savedMap = snap.exists() ? snap.val() : {};
+        const savedKeys = Object.keys(savedMap);
+
+        if (badge) badge.textContent = savedKeys.length;
+
+        if (!grid) return;
+        grid.innerHTML = `<div class="col-span-full py-8 text-center text-xs text-gray-500"><i class="fas fa-spinner fa-spin mr-1"></i> Loading saved videos…</div>`;
+
+        if (!savedKeys.length) {
+            grid.innerHTML = `
+                <div class="col-span-full py-12 text-center dark-card">
+                    <div class="w-14 h-14 rounded-full bg-[var(--bg-soft)] text-gray-400 flex items-center justify-center mx-auto mb-3 text-xl border border-[var(--border-color)]">
+                        <i class="fas fa-bookmark text-[#0095f6]"></i>
+                    </div>
+                    <div class="font-bold text-sm text-[var(--text-primary)]">No Saved Videos Yet</div>
+                    <div class="text-xs text-gray-400 mt-1 max-w-xs mx-auto">Tap the bookmark icon on any reel or video post to save it here for quick access anytime!</div>
+                </div>
+            `;
+            return;
+        }
+
+        const savedPostsList = [];
+        for (const postId of savedKeys) {
+            const pSnap = await get(ref(db, `posts/${postId}`));
+            if (pSnap.exists()) {
+                savedPostsList.push(pSnap.val());
+            }
+        }
+
+        // Sort by saved time descending
+        savedPostsList.sort((a, b) => ((savedMap[b.postId]?.savedAt || 0) - (savedMap[a.postId]?.savedAt || 0)));
+
+        grid.innerHTML = "";
+        for (const post of savedPostsList) {
+            const author = await getUserByUID(post.uid);
+            const ytid = post.youtubeId || (post.youtubeUrl ? extractYouTubeId(post.youtubeUrl) : null);
+            const thumb = post.imageUrl || (ytid ? `https://img.youtube.com/vi/${ytid}/hqdefault.jpg` : DEFAULT_COVER);
+
+            const card = document.createElement("div");
+            card.className = "saved-video-card group";
+            card.innerHTML = `
+                <img src="${thumb}" alt="Saved Video" loading="lazy" />
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-between p-3 pointer-events-none">
+                    <div class="flex justify-between items-start pointer-events-auto">
+                        <span class="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10px] text-white font-bold flex items-center gap-1">
+                            <i class="fas fa-play text-[9px] text-[#0095f6]"></i> Video
+                        </span>
+                        <button class="unsave-video-btn w-7 h-7 rounded-full bg-black/70 hover:bg-red-600 text-white flex items-center justify-center text-xs transition" title="Remove from saved">
+                            <i class="fas fa-bookmark text-[#0095f6]"></i>
+                        </button>
+                    </div>
+                    <div class="pointer-events-auto">
+                        <div class="text-xs font-bold text-white truncate drop-shadow">${escapeHTML(post.text || "Saved Video")}</div>
+                        <div class="text-[10px] text-gray-300 flex items-center gap-1 mt-0.5">
+                            <img src="${author?.photoURL || DEFAULT_AVATAR}" class="w-3.5 h-3.5 rounded-full object-cover" />
+                            <span class="truncate">${escapeHTML(author?.nickname || "Creator")}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Unsave button
+            card.querySelector(".unsave-video-btn")?.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                await remove(ref(db, `savedPosts/${currentUser.uid}/${post.postId}`));
+                showToast("Removed from Saved", "info");
+                renderProfileSavedVideos();
+            });
+
+            // Card click to play video or open in reels
+            card.addEventListener("click", () => {
+                if (ytid) {
+                    showPage("videos");
+                } else {
+                    showPage("feed");
+                }
+            });
+
+            grid.appendChild(card);
+        }
+    } catch (e) {
+        console.error("renderProfileSavedVideos error:", e);
+        grid.innerHTML = `<div class="col-span-full py-8 text-center text-xs text-red-400">Could not load saved videos.</div>`;
+    }
+}
+window.renderProfileSavedVideos = renderProfileSavedVideos;
+
+// Helper: Show Push Notifications Toast
 function setupMessageNotifications() {
     if (!currentUser) return;
     onValue(ref(db, `chatList/${currentUser.uid}`), async s => {
@@ -1959,6 +2642,7 @@ async function createPost() {
                 type: "youtube", youtubeUrl: ytLink, youtubeId: ytId, tags, views: 0,
                 createdAt: serverTimestamp(), reactions: {}, comments: {}
             });
+            parseAndSendMentions(text, { type: 'post', postId: pr.key });
             resetPostComposer();
             showToast("Video shared!", "success");
             loadFeed();
@@ -1978,6 +2662,7 @@ async function createPost() {
             postId: pr.key, uid: currentUser.uid, text, imageUrl, privacy,
             type: "post", tags, views: 0, createdAt: serverTimestamp(), reactions: {}, comments: {}
         });
+        parseAndSendMentions(text, { type: 'post', postId: pr.key });
         resetPostComposer();
         showToast("Post shared!", "success");
         loadFeed();
@@ -2123,7 +2808,7 @@ function createPostCard(post, user) {
             <button class="text-gray-400 text-xs post-options-btn"><i class="fas fa-ellipsis-h"></i></button>
         </div>
 
-        ${post.text ? `<div class="px-3.5 pb-2 text-xs leading-relaxed text-[var(--text-primary)]">${escapeHTML(post.text)}</div>` : ""}
+        ${post.text ? `<div class="px-3.5 pb-2 text-xs leading-relaxed text-[var(--text-primary)]">${formatMentionsAndText(post.text)}</div>` : ""}
 
         ${post.type === "youtube" && post.youtubeId ? `
             <div class="feed-video-wrap" data-ytid="${post.youtubeId}">
@@ -2154,7 +2839,7 @@ function createPostCard(post, user) {
             <div class="comments-container hidden mt-2 space-y-1.5 pt-2 border-t border-[var(--border-color)]">
                 <div class="comments-list max-h-36 overflow-y-auto space-y-1.5"></div>
                 <div class="flex gap-2 pt-2">
-                    <input class="flex-1 bg-transparent border-b border-[var(--border-color)] pb-1 outline-none text-xs text-[var(--text-primary)]" placeholder="Add a comment…" />
+                    <input class="flex-1 bg-transparent border-b border-[var(--border-color)] pb-1 outline-none text-xs text-[var(--text-primary)]" placeholder="Add a comment… (Use @ to mention)" />
                     <button class="send-comment-btn text-xs font-bold text-[#0095f6]">Post</button>
                 </div>
             </div>
@@ -2209,6 +2894,14 @@ function createPostCard(post, user) {
         } else {
             await set(rRef, "❤️");
             likeBtn.classList.add("liked");
+            if (post.uid && post.uid !== currentUser.uid) {
+                sendNotificationToUser(post.uid, {
+                    type: "like",
+                    title: `${currentUserData?.nickname || "Someone"} liked your post ❤️`,
+                    text: post.text ? post.text.slice(0, 80) : "Liked your post",
+                    postId: post.postId
+                });
+            }
         }
         const updatedSnap = await get(ref(db, `posts/${post.postId}/reactions`));
         const count = updatedSnap.exists() ? Object.keys(updatedSnap.val()).length : 0;
@@ -2263,6 +2956,15 @@ function createPostCard(post, user) {
         if (!val || !currentUser) return;
         const cr = push(ref(db, `posts/${post.postId}/comments`));
         await set(cr, { commentId: cr.key, uid: currentUser.uid, text: val, createdAt: serverTimestamp() });
+        parseAndSendMentions(val, { type: 'comment', postId: post.postId });
+        if (post.uid && post.uid !== currentUser.uid) {
+            sendNotificationToUser(post.uid, {
+                type: "comment",
+                title: `${currentUserData?.nickname || "Someone"} commented on your post`,
+                text: val.slice(0, 100),
+                postId: post.postId
+            });
+        }
         inp.value = "";
         loadPostComments(post.postId, commentsBox.querySelector(".comments-list"));
     });
@@ -2282,8 +2984,11 @@ async function loadPostComments(postId, container) {
     for (const c of comments) {
         const u = await getUserByUID(c.uid);
         const div = document.createElement("div");
-        div.className = "text-[11px] flex gap-1.5";
-        div.innerHTML = `<strong class="font-bold">${escapeHTML(u?.nickname || "User")}</strong> <span>${escapeHTML(c.text)}</span>`;
+        div.className = "text-[11px] flex gap-1.5 items-start";
+        div.innerHTML = `<strong class="font-bold cursor-pointer user-header-trigger flex-shrink-0 text-[var(--text-primary)]">${escapeHTML(u?.nickname || "User")}</strong> <span class="leading-relaxed">${formatMentionsAndText(c.text)}</span>`;
+        div.querySelector(".user-header-trigger")?.addEventListener("click", () => {
+            if (u) openUserProfileFull(u);
+        });
         container.appendChild(div);
     }
 }
@@ -4018,9 +4723,12 @@ async function loadReelComments(postId) {
                     <span class="text-xs font-bold text-[var(--text-primary)]">${escapeHTML(u?.nickname || "User")}</span>
                     <span class="text-[10px] text-gray-400 font-normal">${c.createdAt ? formatTimeAgo(c.createdAt) : ''}</span>
                 </div>
-                <div class="text-xs text-[var(--text-primary)] leading-relaxed mt-0.5">${escapeHTML(c.text)}</div>
+                <div class="text-xs text-[var(--text-primary)] leading-relaxed mt-0.5">${formatMentionsAndText(c.text)}</div>
             </div>
         `;
+        div.querySelector(".cursor-pointer")?.addEventListener("click", () => {
+            if (u) openUserProfileFull(u);
+        });
         list.appendChild(div);
     }
 }
@@ -4045,6 +4753,15 @@ function setupReelCommentsModal() {
 
         const cr = push(ref(db, `posts/${currentReelCommentPost.postId}/comments`));
         await set(cr, { commentId: cr.key, uid: currentUser.uid, text: val, createdAt: serverTimestamp() });
+        parseAndSendMentions(val, { type: 'reel', postId: currentReelCommentPost.postId });
+        if (currentReelCommentPost.uid && currentReelCommentPost.uid !== currentUser.uid) {
+            sendNotificationToUser(currentReelCommentPost.uid, {
+                type: "comment",
+                title: `${currentUserData?.nickname || "Someone"} commented on your reel`,
+                text: val.slice(0, 100),
+                postId: currentReelCommentPost.postId
+            });
+        }
         inp.value = "";
         showToast("Comment posted!", "success");
         loadReelComments(currentReelCommentPost.postId);
