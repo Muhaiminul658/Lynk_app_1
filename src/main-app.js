@@ -1500,15 +1500,54 @@ function renderChatMessages(messages) {
         const bubble = document.createElement("div");
         bubble.className = mine ? "message-bubble mine" : "message-bubble other";
         let content = "";
-        if (msg.type === "image" && msg.imageUrl) {
+        
+        // Instagram-style In-App Shared Post/Reel Card
+        if (msg.sharedItem) {
+            const sh = msg.sharedItem;
+            const isReel = sh.type === "reel" || !!sh.youtubeId;
+            content += `
+                <div class="shared-chat-card p-2 rounded-2xl bg-black/40 border border-white/15 max-w-[220px] mb-1 cursor-pointer transition hover:bg-black/60" data-sh-type="${isReel ? 'reel' : 'post'}" data-sh-ytid="${sh.youtubeId || ''}" data-sh-postid="${sh.postId || ''}">
+                    <div class="relative w-full aspect-video rounded-xl overflow-hidden bg-black mb-1.5 flex items-center justify-center">
+                        ${sh.thumbnail ? `<img src="${sh.thumbnail}" class="w-full h-full object-cover" />` : `<div class="text-2xl text-white/40"><i class="fas fa-${isReel ? 'film' : 'image'}"></i></div>`}
+                        <div class="absolute inset-0 bg-black/20 flex items-center justify-center">
+                            <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center text-xs pl-0.5"><i class="fas fa-${isReel ? 'play' : 'arrow-up-right-from-square'}"></i></div>
+                        </div>
+                        <span class="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white bg-black/70 backdrop-blur">
+                            <i class="fas fa-${isReel ? 'film' : 'image'} mr-1"></i> ${isReel ? 'Reel' : 'Post'}
+                        </span>
+                    </div>
+                    <div class="text-[11px] font-medium text-white/90 truncate leading-tight">${escapeHTML(sh.text || (isReel ? 'Watch reel on Lynk' : 'View post'))}</div>
+                    <div class="text-[10px] text-[#0095f6] font-bold mt-1 flex items-center gap-1">
+                        <span>View inside app</span> <i class="fas fa-arrow-right text-[8px]"></i>
+                    </div>
+                </div>
+            `;
+        } else if (msg.type === "image" && msg.imageUrl) {
             content += `<img src="${msg.imageUrl}" class="max-w-[200px] max-h-[260px] rounded-xl object-cover mb-1" loading="lazy" />`;
         }
-        if (msg.text && msg.type !== "image") {
+        
+        if (msg.text && !msg.sharedItem) {
             content += `<div class="whitespace-pre-wrap break-words">${escapeHTML(msg.text)}</div>`;
         }
+        
         const time = msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
         content += `<div class="text-[9px] mt-1 opacity-60 flex justify-end items-center gap-1">${time}${mine ? `<i class="fas fa-${msg.seen ? "check-double text-blue-300" : "check"}"></i>` : ""}</div>`;
         bubble.innerHTML = content;
+
+        // Click on shared item inside chat opens it directly in app
+        const sharedCard = bubble.querySelector(".shared-chat-card");
+        if (sharedCard) {
+            sharedCard.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const shType = sharedCard.dataset.shType;
+                if (shType === "reel") {
+                    showPage("videos");
+                } else {
+                    showPage("feed");
+                }
+            });
+        }
+
         wrapper.appendChild(bubble);
         container.appendChild(wrapper);
     });
@@ -2128,6 +2167,12 @@ function createPostCard(post, user) {
         openProfilePhotoViewer(user, user.photoURL || DEFAULT_AVATAR);
     });
     
+    // 3-Dot Options menu handler
+    card.querySelector(".post-options-btn")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openPostOptionsMenu(post, "post");
+    });
+
     // Sound button toggle
     const soundBtn = card.querySelector(".video-sound-pill");
     if (soundBtn) {
@@ -2171,6 +2216,38 @@ function createPostCard(post, user) {
         if (countEl) countEl.textContent = count ? `${count} likes` : "Be the first to like";
     });
 
+    // Bookmark/Save handler
+    const bookmarkBtn = card.querySelector(".bookmark-btn");
+    if (bookmarkBtn) {
+        // Initial state check
+        if (currentUser) {
+            get(ref(db, `savedPosts/${currentUser.uid}/${post.postId}`)).then(snap => {
+                if (snap.exists()) {
+                    bookmarkBtn.innerHTML = `<i class="fas fa-bookmark text-[var(--text-primary)]"></i>`;
+                    bookmarkBtn.dataset.saved = "true";
+                }
+            }).catch(() => {});
+        }
+
+        bookmarkBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!currentUser) { showToast("Please login first.", "error"); return; }
+            const isSaved = bookmarkBtn.dataset.saved === "true";
+            const saveRef = ref(db, `savedPosts/${currentUser.uid}/${post.postId}`);
+            if (isSaved) {
+                await remove(saveRef);
+                bookmarkBtn.dataset.saved = "false";
+                bookmarkBtn.innerHTML = `<i class="far fa-bookmark"></i>`;
+                showToast("Removed from Saved", "info");
+            } else {
+                await set(saveRef, { postId: post.postId, type: post.type || "post", savedAt: Date.now() });
+                bookmarkBtn.dataset.saved = "true";
+                bookmarkBtn.innerHTML = `<i class="fas fa-bookmark text-[var(--text-primary)]"></i>`;
+                showToast("Saved to your Bookmarks! 🔖", "success");
+            }
+        });
+    }
+
     // Comments handler
     const commentToggle = card.querySelector(".comment-btn"), viewComments = card.querySelector(".view-comments-btn"), commentsBox = card.querySelector(".comments-container");
     const openComments = () => {
@@ -2191,8 +2268,7 @@ function createPostCard(post, user) {
     });
 
     card.querySelector(".share-btn")?.addEventListener("click", () => {
-        if (navigator.share) navigator.share({ title: "Lynk Post", text: post.text || "Check out this post on Lynk!" });
-        else { navigator.clipboard.writeText(post.text || "Lynk Post"); showToast("Copied to clipboard!", "success"); }
+        openShareSheet(post, "post");
     });
 
     return card;
@@ -2325,6 +2401,12 @@ function renderNextReelsBatch() {
                 <div class="reel-action-wrap">
                     <button class="reel-action-btn share-reel-btn"><i class="fas fa-paper-plane"></i></button>
                 </div>
+                <div class="reel-action-wrap">
+                    <button class="reel-action-btn bookmark-reel-btn" title="Save Reel"><i class="far fa-bookmark"></i></button>
+                </div>
+                <div class="reel-action-wrap">
+                    <button class="reel-action-btn options-reel-btn" title="Options"><i class="fas fa-ellipsis-v"></i></button>
+                </div>
             </div>
             <div class="absolute bottom-16 left-0 right-16 p-4 z-10 pointer-events-none">
                 <div class="text-white text-xs font-bold drop-shadow mb-1">${escapeHTML((post.text || "Reel").slice(0, 100))}</div>
@@ -2355,11 +2437,53 @@ function renderNextReelsBatch() {
             if (countEl) countEl.textContent = count || "";
         });
 
-        // Share button on reel
+        // Comment button on reel (Opens reel comments modal)
+        slide.querySelector(".comment-reel-btn")?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openReelCommentsModal(post);
+        });
+
+        // Share button on reel (Instagram style share sheet)
         slide.querySelector(".share-reel-btn")?.addEventListener("click", (e) => {
             e.stopPropagation();
-            if (navigator.share) navigator.share({ title: "Lynk Reel", text: post.text || "Check out this reel on Lynk!" });
-            else { navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${post.youtubeId}`); showToast("Reel link copied!", "success"); }
+            openShareSheet(post, "reel");
+        });
+
+        // Bookmark / Save button on reel
+        const reelBookmarkBtn = slide.querySelector(".bookmark-reel-btn");
+        if (reelBookmarkBtn) {
+            if (currentUser) {
+                get(ref(db, `savedPosts/${currentUser.uid}/${post.postId}`)).then(snap => {
+                    if (snap.exists()) {
+                        reelBookmarkBtn.innerHTML = `<i class="fas fa-bookmark text-[#0095f6]"></i>`;
+                        reelBookmarkBtn.dataset.saved = "true";
+                    }
+                }).catch(() => {});
+            }
+
+            reelBookmarkBtn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                if (!currentUser) { showToast("Please login first.", "error"); return; }
+                const isSaved = reelBookmarkBtn.dataset.saved === "true";
+                const saveRef = ref(db, `savedPosts/${currentUser.uid}/${post.postId}`);
+                if (isSaved) {
+                    await remove(saveRef);
+                    reelBookmarkBtn.dataset.saved = "false";
+                    reelBookmarkBtn.innerHTML = `<i class="far fa-bookmark"></i>`;
+                    showToast("Removed from Saved", "info");
+                } else {
+                    await set(saveRef, { postId: post.postId, type: "reel", savedAt: Date.now() });
+                    reelBookmarkBtn.dataset.saved = "true";
+                    reelBookmarkBtn.innerHTML = `<i class="fas fa-bookmark text-[#0095f6]"></i>`;
+                    showToast("Saved Reel to Bookmarks! 🔖", "success");
+                }
+            });
+        }
+
+        // 3-Dot Options button on reel
+        slide.querySelector(".options-reel-btn")?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openPostOptionsMenu(post, "reel");
         });
 
         container.appendChild(slide);
@@ -2374,6 +2498,240 @@ function renderNextReelsBatch() {
 $("videos-tag-search")?.addEventListener("keydown", e => { 
   if (e.key === "Enter") loadVideosPage($("videos-tag-search").value.trim()); 
 });
+
+// Helper for sending direct messages (used in Shares and Story replies)
+async function sendDirectMessageToUser(targetUid, text, type = "text", imageUrl = null, sharedItem = null) {
+    if (!currentUser || !targetUid) return false;
+    try {
+        const chatId = [currentUser.uid, targetUid].sort().join("_");
+        const mr = push(ref(db, `messages/${chatId}`));
+        const msgPayload = { 
+            messageId: mr.key, 
+            senderId: currentUser.uid, 
+            receiverId: targetUid, 
+            text, 
+            type, 
+            imageUrl: imageUrl || null, 
+            createdAt: serverTimestamp(), 
+            seen: false 
+        };
+        if (sharedItem) {
+            msgPayload.sharedItem = {
+                postId: sharedItem.postId || null,
+                type: sharedItem.type || (sharedItem.youtubeId ? "reel" : "post"),
+                youtubeId: sharedItem.youtubeId || null,
+                text: (sharedItem.text || "").slice(0, 140),
+                thumbnail: imageUrl || sharedItem.thumbnail || null,
+                authorUid: sharedItem.uid || null
+            };
+        }
+        await set(mr, msgPayload);
+        const now = Date.now();
+        await update(ref(db), {
+            [`chatList/${currentUser.uid}/${targetUid}`]: { uid: targetUid, lastMessage: text, updatedAt: now, theme: 'default' },
+            [`chatList/${targetUid}/${currentUser.uid}`]: { uid: currentUser.uid, lastMessage: text, updatedAt: now, theme: 'default' }
+        });
+        return true;
+    } catch (err) {
+        console.error("sendDirectMessageToUser error:", err);
+        return false;
+    }
+}
+
+// Instagram-Style Share Sheet Modal Logic
+let currentShareItem = null;
+let currentShareType = "reel";
+
+async function openShareSheet(item, type = "reel") {
+    if (!item) return;
+    currentShareItem = item;
+    currentShareType = type;
+
+    const modal = $("share-modal");
+    if (!modal) return;
+
+    const author = await getUserByUID(item.uid);
+    const thumb = item.thumbnail || (item.youtubeId ? `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` : (item.images?.[0] || author?.photoURL || DEFAULT_AVATAR));
+
+    const previewThumb = $("share-preview-thumb");
+    const previewAuthor = $("share-preview-author");
+    const previewText = $("share-preview-text");
+    const storyActionTitle = $("share-to-story-title");
+
+    if (previewThumb) previewThumb.src = thumb;
+    if (previewAuthor) previewAuthor.textContent = author?.nickname || "User";
+    if (previewText) previewText.textContent = item.text ? item.text.slice(0, 70) : (type === "reel" ? "🎬 Watch Reel on Lynk" : "Post on Lynk");
+    if (storyActionTitle) storyActionTitle.textContent = type === "reel" ? "Add reel to your story" : "Add post to your story";
+
+    // Populate contacts
+    await renderShareFriendsList();
+
+    modal.classList.add("active");
+}
+
+async function renderShareFriendsList(filterText = "") {
+    const container = $("share-friends-list");
+    if (!container) return;
+    container.innerHTML = `<div class="text-center text-xs text-gray-500 py-3">Loading contacts…</div>`;
+
+    const friendsIds = Object.keys(friendsCache || {});
+    let usersToDisplay = [];
+
+    if (friendsIds.length > 0) {
+        for (const uid of friendsIds) {
+            const u = await getUserByUID(uid);
+            if (u && !isBlocked(uid)) usersToDisplay.push(u);
+        }
+    } else {
+        const snap = await get(ref(db, "users"));
+        if (snap.exists()) {
+            const all = Object.values(snap.val());
+            usersToDisplay = all.filter(u => u.uid !== currentUser?.uid && !isBlocked(u.uid)).slice(0, 10);
+        }
+    }
+
+    if (filterText) {
+        const q = filterText.toLowerCase();
+        usersToDisplay = usersToDisplay.filter(u => (u.nickname || "").toLowerCase().includes(q) || (u.username || "").toLowerCase().includes(q));
+    }
+
+    const countEl = $("share-friend-count");
+    if (countEl) countEl.textContent = `${usersToDisplay.length} contacts`;
+
+    container.innerHTML = "";
+    if (!usersToDisplay.length) {
+        container.innerHTML = `<div class="text-center text-xs text-gray-500 py-3">No contacts found.</div>`;
+        return;
+    }
+
+    usersToDisplay.forEach(u => {
+        const row = document.createElement("div");
+        row.className = "flex items-center justify-between p-2 rounded-xl hover:bg-[var(--bg-soft)] transition";
+        row.innerHTML = `
+            <div class="flex items-center gap-2.5 min-w-0">
+                <img src="${u.photoURL || DEFAULT_AVATAR}" class="w-8 h-8 rounded-full object-cover border border-[var(--border-color)] flex-shrink-0" />
+                <div class="min-w-0">
+                    <div class="text-xs font-bold text-[var(--text-primary)] truncate">${escapeHTML(u.nickname || "User")}</div>
+                    <div class="text-[10px] text-gray-400 truncate">@${escapeHTML(u.username || "user")}</div>
+                </div>
+            </div>
+            <button class="send-share-btn px-3 py-1 rounded-full bg-[#0095f6] hover:bg-[#1877f2] text-white text-xs font-bold transition">Send</button>
+        `;
+
+        const sendBtn = row.querySelector(".send-share-btn");
+        sendBtn?.addEventListener("click", async () => {
+            if (!currentUser) { showToast("Please login first.", "error"); return; }
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i>`;
+            
+            const thumb = currentShareItem?.thumbnail || (currentShareItem?.youtubeId ? `https://img.youtube.com/vi/${currentShareItem.youtubeId}/hqdefault.jpg` : (currentShareItem?.images?.[0] || null));
+            const shareUrl = currentShareItem?.youtubeId ? `https://www.youtube.com/watch?v=${currentShareItem.youtubeId}` : window.location.href;
+            const messageText = `🎬 Shared a ${currentShareType === 'reel' ? 'reel' : 'post'}: "${currentShareItem?.text || ''}"\n${shareUrl}`;
+            
+            const success = await sendDirectMessageToUser(u.uid, messageText, "text", thumb, currentShareItem);
+            if (success) {
+                sendBtn.className = "px-3 py-1 rounded-full bg-green-600/30 text-green-400 text-xs font-bold";
+                sendBtn.innerHTML = `<i class="fas fa-check mr-1"></i> Sent`;
+                showToast(`Sent to ${u.nickname}! ✨`, "success");
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.textContent = "Send";
+                showToast("Could not send.", "error");
+            }
+        });
+
+        container.appendChild(row);
+    });
+}
+
+async function addReelToStory(item, type = "reel") {
+    if (!currentUser) { showToast("Please login to share stories.", "error"); return; }
+    if (!item) return;
+
+    showLoader("Adding to your story…");
+    try {
+        const author = await getUserByUID(item.uid);
+        const thumb = item.thumbnail || (item.youtubeId ? `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` : (item.images?.[0] || ''));
+        
+        const sr = push(ref(db, "stories"));
+        await set(sr, {
+            storyId: sr.key,
+            uid: currentUser.uid,
+            type: type === "reel" ? "reel" : "post",
+            youtubeId: item.youtubeId || null,
+            title: item.text || (type === "reel" ? "Reel Video" : "Post"),
+            imageUrl: thumb,
+            authorUid: item.uid,
+            authorName: author?.nickname || "User",
+            authorUsername: author?.username || "",
+            authorPhoto: author?.photoURL || DEFAULT_AVATAR,
+            privacy: "public",
+            createdAt: serverTimestamp(),
+            expiresAt: Date.now() + STORY_EXPIRY_MS,
+            views: {}
+        });
+
+        $("share-modal")?.classList.remove("active");
+        showToast("Added reel to your story! 🌟", "success");
+        loadStories();
+    } catch (err) {
+        console.error("addReelToStory error:", err);
+        showToast("Could not add to story.", "error");
+    }
+    hideLoader();
+}
+
+function setupShareModal() {
+    $("close-share-modal")?.addEventListener("click", () => $("share-modal")?.classList.remove("active"));
+    $("share-to-story-action")?.addEventListener("click", () => addReelToStory(currentShareItem, currentShareType));
+    
+    $("share-friend-search")?.addEventListener("input", (e) => {
+        renderShareFriendsList(e.target.value.trim());
+    });
+
+    $("share-action-copy")?.addEventListener("click", () => {
+        if (!currentShareItem) return;
+        const url = currentShareItem.youtubeId ? `https://www.youtube.com/watch?v=${currentShareItem.youtubeId}` : window.location.href;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(url);
+            showToast("Link copied to clipboard! 📋", "success");
+        } else {
+            showToast("Copied: " + url, "info");
+        }
+        $("share-modal")?.classList.remove("active");
+    });
+
+    $("share-action-native")?.addEventListener("click", () => {
+        if (!currentShareItem) return;
+        const url = currentShareItem.youtubeId ? `https://www.youtube.com/watch?v=${currentShareItem.youtubeId}` : window.location.href;
+        if (navigator.share) {
+            navigator.share({
+                title: "Lynk " + (currentShareType === 'reel' ? 'Reel' : 'Post'),
+                text: currentShareItem.text || "Check this out on Lynk!",
+                url: url
+            }).catch(() => {});
+        } else {
+            if (navigator.clipboard) navigator.clipboard.writeText(url);
+            showToast("Link copied to clipboard! 📋", "success");
+        }
+        $("share-modal")?.classList.remove("active");
+    });
+
+    $("share-action-whatsapp")?.addEventListener("click", () => {
+        if (!currentShareItem) return;
+        const url = currentShareItem.youtubeId ? `https://www.youtube.com/watch?v=${currentShareItem.youtubeId}` : window.location.href;
+        const text = encodeURIComponent((currentShareItem.text || "Check out this on Lynk!") + " " + url);
+        window.open(`https://api.whatsapp.com/send?text=${text}`, "_blank");
+        $("share-modal")?.classList.remove("active");
+    });
+
+    $("share-action-messenger")?.addEventListener("click", () => {
+        if (!currentShareItem) return;
+        const url = currentShareItem.youtubeId ? `https://www.youtube.com/watch?v=${currentShareItem.youtubeId}` : window.location.href;
+        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, "_blank");
+        $("share-modal")?.classList.remove("active");
+    });
+}
 
 // Instagram Stories System
 function setupStoryModal() {
@@ -2472,6 +2830,8 @@ function loadStories() {
     });
 }
 
+let storyProgressInterval = null;
+
 async function openStoryViewer(uid) {
     const s = await get(ref(db, "stories"));
     const data = s.val() || {};
@@ -2483,25 +2843,128 @@ async function openStoryViewer(uid) {
     renderStorySlide();
 }
 
+function closeStoryViewer() {
+    if (storyProgressInterval) { clearInterval(storyProgressInterval); storyProgressInterval = null; }
+    const player = $("story-reel-player");
+    if (player) player.innerHTML = "";
+    $("story-viewer")?.classList.remove("active");
+}
+
 function renderStorySlide() {
+    if (storyProgressInterval) { clearInterval(storyProgressInterval); storyProgressInterval = null; }
     const st = storyViewerStories[storyViewerIndex];
-    if (!st) { $("story-viewer")?.classList.remove("active"); return; }
-    $("story-viewer-image").src = st.imageUrl;
+    if (!st) { closeStoryViewer(); return; }
+
+    const progressBar = $("story-progress-bar");
+    if (progressBar) progressBar.style.width = "0%";
+
+    // User details header
     getUserByUID(st.uid).then(u => {
         if (u) {
             $("story-viewer-avatar").src = u.photoURL || DEFAULT_AVATAR;
             $("story-viewer-name").textContent = u.nickname || "User";
         }
     });
+
+    const timeEl = $("story-viewer-time");
+    if (timeEl && st.createdAt) {
+        timeEl.textContent = formatTimeAgo(st.createdAt);
+    }
+
+    const imgEl = $("story-viewer-image");
+    const reelContainer = $("story-viewer-reel-container");
+    const reelPlayer = $("story-reel-player");
+
+    if (st.type === "reel" && st.youtubeId) {
+        // Render Instagram Reel in Story Slide
+        if (imgEl) imgEl.classList.add("hidden");
+        if (reelContainer) reelContainer.classList.remove("hidden");
+
+        const authorAvatar = $("story-reel-author-avatar");
+        const authorName = $("story-reel-author-name");
+        const caption = $("story-reel-caption");
+        const watchBtn = $("story-reel-watch-btn");
+
+        if (authorAvatar) authorAvatar.src = st.authorPhoto || DEFAULT_AVATAR;
+        if (authorName) authorName.textContent = `@${st.authorUsername || st.authorName || 'user'}`;
+        if (caption) caption.textContent = st.title || "Reel video";
+
+        if (reelPlayer) {
+            reelPlayer.innerHTML = `<iframe class="w-full h-full" src="https://www.youtube-nocookie.com/embed/${st.youtubeId}?autoplay=1&mute=0&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+        }
+
+        if (watchBtn) {
+            watchBtn.onclick = (e) => {
+                e.stopPropagation();
+                closeStoryViewer();
+                showPage("videos");
+                loadVideosPage();
+            };
+        }
+    } else {
+        // Render Regular Image Story Slide
+        if (reelContainer) reelContainer.classList.add("hidden");
+        if (reelPlayer) reelPlayer.innerHTML = "";
+        if (imgEl) {
+            imgEl.src = st.imageUrl || DEFAULT_AVATAR;
+            imgEl.classList.remove("hidden");
+        }
+    }
+
+    // Auto-advance timer (6 seconds per slide)
+    const startTime = Date.now();
+    const duration = 6000;
+    storyProgressInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const pct = Math.min(100, (elapsed / duration) * 100);
+        if (progressBar) progressBar.style.width = pct + "%";
+        if (pct >= 100) {
+            clearInterval(storyProgressInterval);
+            storyProgressInterval = null;
+            if (storyViewerIndex < storyViewerStories.length - 1) {
+                storyViewerIndex++;
+                renderStorySlide();
+            } else {
+                closeStoryViewer();
+            }
+        }
+    }, 50);
 }
 
-$("story-close-btn")?.addEventListener("click", () => $("story-viewer")?.classList.remove("active"));
+$("story-close-btn")?.addEventListener("click", closeStoryViewer);
 $("story-next-area")?.addEventListener("click", () => {
     if (storyViewerIndex < storyViewerStories.length - 1) { storyViewerIndex++; renderStorySlide(); }
-    else $("story-viewer")?.classList.remove("active");
+    else closeStoryViewer();
 });
 $("story-prev-area")?.addEventListener("click", () => {
     if (storyViewerIndex > 0) { storyViewerIndex--; renderStorySlide(); }
+});
+
+// Story emoji reactions bar
+document.querySelectorAll(".story-reaction-btn").forEach(btn => {
+    btn.onclick = async (e) => {
+        e.stopPropagation();
+        const emoji = btn.dataset.emoji || "❤️";
+        const st = storyViewerStories[storyViewerIndex];
+        if (!st || !currentUser) { showToast("Please login first.", "error"); return; }
+        
+        await sendDirectMessageToUser(st.uid, `Reacted ${emoji} to your story!`, "text");
+        showToast(`Reacted ${emoji}!`, "success");
+    };
+});
+
+// Story comment reply send
+$("story-comment-send")?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const inp = $("story-comment-input");
+    const val = inp?.value.trim();
+    if (!val || !currentUser) return;
+    const st = storyViewerStories[storyViewerIndex];
+    if (!st) return;
+
+    await sendDirectMessageToUser(st.uid, `📸 Replied to your story: "${val}"`, "text");
+    inp.value = "";
+    showToast("Reply sent in DM! 💌", "success");
 });
 
 // LMS Courses System
@@ -3402,6 +3865,196 @@ function initProfilePhotoViewer() {
     });
 }
 
+// Instagram 3-Dot Options Sheet Logic
+let currentPostOptionItem = null;
+let currentPostOptionType = "post";
+
+async function openPostOptionsMenu(item, type = "post") {
+    if (!item) return;
+    currentPostOptionItem = item;
+    currentPostOptionType = type;
+
+    const modal = $("post-options-modal");
+    if (!modal) return;
+
+    // Check if saved
+    const saveText = $("post-option-save-text");
+    if (saveText && currentUser) {
+        try {
+            const snap = await get(ref(db, `savedPosts/${currentUser.uid}/${item.postId}`));
+            saveText.textContent = snap.exists() ? "Remove from Bookmarks" : "Save to Bookmarks";
+        } catch (_) {
+            saveText.textContent = "Save to Bookmarks";
+        }
+    }
+
+    // Check if owner or admin for delete button
+    const deleteBtn = $("post-option-delete");
+    if (deleteBtn) {
+        const canDelete = currentUser && (item.uid === currentUser.uid || isAdmin);
+        deleteBtn.classList.toggle("hidden", !canDelete);
+    }
+
+    modal.classList.add("active");
+}
+
+function setupPostOptionsMenu() {
+    $("close-post-options")?.addEventListener("click", () => {
+        $("post-options-modal")?.classList.remove("active");
+    });
+
+    $("post-options-modal")?.addEventListener("click", (e) => {
+        if (e.target.id === "post-options-modal") {
+            $("post-options-modal")?.classList.remove("active");
+        }
+    });
+
+    // Option: Save / Unsave
+    $("post-option-save")?.addEventListener("click", async () => {
+        if (!currentUser) { showToast("Please login first.", "error"); return; }
+        if (!currentPostOptionItem) return;
+        const saveRef = ref(db, `savedPosts/${currentUser.uid}/${currentPostOptionItem.postId}`);
+        const snap = await get(saveRef);
+        if (snap.exists()) {
+            await remove(saveRef);
+            showToast("Removed from Bookmarks", "info");
+        } else {
+            await set(saveRef, { postId: currentPostOptionItem.postId, type: currentPostOptionType, savedAt: Date.now() });
+            showToast("Saved to your Bookmarks! 🔖", "success");
+        }
+        $("post-options-modal")?.classList.remove("active");
+    });
+
+    // Option: Share
+    $("post-option-share")?.addEventListener("click", () => {
+        const item = currentPostOptionItem;
+        const type = currentPostOptionType;
+        $("post-options-modal")?.classList.remove("active");
+        if (item) openShareSheet(item, type);
+    });
+
+    // Option: Copy In-App Link
+    $("post-option-copy")?.addEventListener("click", () => {
+        if (!currentPostOptionItem) return;
+        const url = currentPostOptionItem.youtubeId ? `https://www.youtube.com/watch?v=${currentPostOptionItem.youtubeId}` : window.location.href;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(url);
+            showToast("Link copied to clipboard! 📋", "success");
+        } else {
+            showToast("Copied: " + url, "info");
+        }
+        $("post-options-modal")?.classList.remove("active");
+    });
+
+    // Option: View author profile
+    $("post-option-author")?.addEventListener("click", async () => {
+        if (!currentPostOptionItem) return;
+        const author = await getUserByUID(currentPostOptionItem.uid);
+        $("post-options-modal")?.classList.remove("active");
+        if (author) openUserProfileFull(author);
+    });
+
+    // Option: Report
+    $("post-option-report")?.addEventListener("click", () => {
+        showToast("Thanks for letting us know. Post reported for review.", "info");
+        $("post-options-modal")?.classList.remove("active");
+    });
+
+    // Option: Delete
+    $("post-option-delete")?.addEventListener("click", async () => {
+        if (!currentPostOptionItem || !currentUser) return;
+        if (currentPostOptionItem.uid !== currentUser.uid && !isAdmin) {
+            showToast("You can only delete your own posts.", "error");
+            return;
+        }
+        showLoader("Deleting…");
+        try {
+            await remove(ref(db, `posts/${currentPostOptionItem.postId}`));
+            $("post-options-modal")?.classList.remove("active");
+            showToast("Post deleted successfully.", "success");
+            if (currentPostOptionType === "reel") loadVideosPage();
+            else loadFeed();
+        } catch (err) {
+            showToast("Could not delete post.", "error");
+        }
+        hideLoader();
+    });
+}
+
+// Instagram Reel Comments Bottom Sheet Logic
+let currentReelCommentPost = null;
+
+function openReelCommentsModal(post) {
+    if (!post) return;
+    currentReelCommentPost = post;
+    const modal = $("reel-comments-modal");
+    if (!modal) return;
+    modal.classList.add("active");
+    loadReelComments(post.postId);
+}
+
+async function loadReelComments(postId) {
+    const list = $("reel-comments-list");
+    if (!list) return;
+    list.innerHTML = `<div class="text-center text-xs text-gray-500 py-4"><i class="fas fa-spinner fa-spin mr-1"></i> Loading comments…</div>`;
+
+    const snap = await get(ref(db, `posts/${postId}/comments`));
+    const comments = snap.exists() ? Object.values(snap.val()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : [];
+    
+    list.innerHTML = "";
+    if (!comments.length) {
+        list.innerHTML = `<div class="text-center text-xs text-gray-500 py-8"><i class="fas fa-comment-slash text-2xl mb-2 block opacity-40"></i>No comments yet. Be the first to comment!</div>`;
+        return;
+    }
+
+    for (const c of comments) {
+        const u = await getUserByUID(c.uid);
+        const div = document.createElement("div");
+        div.className = "flex gap-2.5 items-start p-1.5 rounded-xl hover:bg-[var(--bg-soft)] transition";
+        div.innerHTML = `
+            <img src="${u?.photoURL || DEFAULT_AVATAR}" class="w-7 h-7 rounded-full object-cover flex-shrink-0 mt-0.5 border border-[var(--border-color)]" />
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-[var(--text-primary)]">${escapeHTML(u?.nickname || "User")}</span>
+                    <span class="text-[10px] text-gray-400 font-normal">${c.createdAt ? formatTimeAgo(c.createdAt) : ''}</span>
+                </div>
+                <div class="text-xs text-[var(--text-primary)] leading-relaxed mt-0.5">${escapeHTML(c.text)}</div>
+            </div>
+        `;
+        list.appendChild(div);
+    }
+}
+
+function setupReelCommentsModal() {
+    $("close-reel-comments")?.addEventListener("click", () => {
+        $("reel-comments-modal")?.classList.remove("active");
+    });
+
+    $("reel-comments-modal")?.addEventListener("click", (e) => {
+        if (e.target.id === "reel-comments-modal") {
+            $("reel-comments-modal")?.classList.remove("active");
+        }
+    });
+
+    $("reel-comment-submit")?.addEventListener("click", async () => {
+        if (!currentUser) { showToast("Please login first.", "error"); return; }
+        if (!currentReelCommentPost) return;
+        const inp = $("reel-comment-input");
+        const val = inp?.value.trim();
+        if (!val) return;
+
+        const cr = push(ref(db, `posts/${currentReelCommentPost.postId}/comments`));
+        await set(cr, { commentId: cr.key, uid: currentUser.uid, text: val, createdAt: serverTimestamp() });
+        inp.value = "";
+        showToast("Comment posted!", "success");
+        loadReelComments(currentReelCommentPost.postId);
+    });
+
+    $("reel-comment-input")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("reel-comment-submit")?.click();
+    });
+}
+
 // Global Exports
 window.openTeacherDashboard = openTeacherDashboard;
 window.openTeacherWebByHandle = (handle) => { window._teacherWebHandle = handle; showPage("teacher-web"); };
@@ -3412,8 +4065,13 @@ window.loadWithdrawHistory = loadWithdrawHistory;
 window.loadTeacherBuilder = loadTeacherBuilder;
 window.renderTeacherWeb = renderTeacherWeb;
 window.openProfilePhotoViewer = openProfilePhotoViewer;
+window.openPostOptionsMenu = openPostOptionsMenu;
+window.openReelCommentsModal = openReelCommentsModal;
 
 setupStoryModal();
+setupShareModal();
+setupPostOptionsMenu();
+setupReelCommentsModal();
 initProfilePhotoViewer();
 console.log("Lynk Pro Edition Active");
 

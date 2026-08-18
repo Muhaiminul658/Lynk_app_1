@@ -784,26 +784,52 @@
             <!-- 19. INSTAGRAM STORY VIEWER -->
             <div id="story-viewer" class="story-viewer">
                 <div class="story-progress"><div class="bar" id="story-progress-bar"></div></div>
-                <div class="story-user absolute top-8 left-4 flex items-center gap-3 text-white font-semibold text-xs z-10">
+                <div class="story-user absolute top-8 left-4 flex items-center gap-3 text-white font-semibold text-xs z-20">
                     <img id="story-viewer-avatar" src="" alt="" class="w-8 h-8 rounded-full border-2 border-white object-cover" />
-                    <span id="story-viewer-name"></span>
+                    <div class="flex flex-col">
+                        <span id="story-viewer-name" class="font-bold"></span>
+                        <span id="story-viewer-time" class="text-[10px] text-white/70 font-normal"></span>
+                    </div>
                 </div>
-                <button class="close-story" id="story-close-btn"><i class="fas fa-times"></i></button>
-                <img id="story-viewer-image" src="" alt="Story" />
-                <div class="absolute inset-0 flex" style="z-index:1">
+                <button class="close-story z-20" id="story-close-btn"><i class="fas fa-times"></i></button>
+                
+                <!-- Image Story Slide -->
+                <img id="story-viewer-image" src="" alt="Story" class="hidden" />
+
+                <!-- Reel in Story Slide (Instagram Style) -->
+                <div id="story-viewer-reel-container" class="story-reel-card-wrap hidden">
+                    <div class="story-reel-card">
+                        <div class="story-reel-header">
+                            <div class="flex items-center gap-2">
+                                <img id="story-reel-author-avatar" class="w-6 h-6 rounded-full object-cover" src="" />
+                                <span id="story-reel-author-name" class="text-xs font-bold text-white truncate max-w-[150px]"></span>
+                            </div>
+                            <span class="story-reel-badge"><i class="fas fa-film mr-1"></i> Reel</span>
+                        </div>
+                        <div id="story-reel-player" class="story-reel-player"></div>
+                        <div class="story-reel-footer">
+                            <div id="story-reel-caption" class="text-[11px] text-white/90 line-clamp-2 mb-2 font-medium"></div>
+                            <button id="story-reel-watch-btn" class="story-reel-watch-btn">
+                                <i class="fas fa-play mr-1.5"></i> Watch full reel on Lynk
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="absolute inset-0 flex" style="z-index:10">
                     <div class="w-1/2 h-full" id="story-prev-area"></div>
                     <div class="w-1/2 h-full" id="story-next-area"></div>
                 </div>
-                <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 to-transparent flex flex-col gap-2" style="z-index:5">
+                <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 to-transparent flex flex-col gap-2" style="z-index:25">
                     <div id="story-reaction-summary" class="flex gap-2 justify-center"></div>
                     <div id="story-comments-preview" class="max-h-20 overflow-y-auto text-xs text-white/90"></div>
                     <div class="flex gap-3 justify-center py-2" id="story-reactions-bar">
-                        <button class="story-reaction-btn text-2xl" data-emoji="❤️">❤️</button>
-                        <button class="story-reaction-btn text-2xl" data-emoji="😂">😂</button>
-                        <button class="story-reaction-btn text-2xl" data-emoji="😮">😮</button>
-                        <button class="story-reaction-btn text-2xl" data-emoji="😢">😢</button>
-                        <button class="story-reaction-btn text-2xl" data-emoji="🔥">🔥</button>
-                        <button class="story-reaction-btn text-2xl" data-emoji="👍">👍</button>
+                        <button class="story-reaction-btn text-2xl hover:scale-125 transition active:scale-95" data-emoji="❤️">❤️</button>
+                        <button class="story-reaction-btn text-2xl hover:scale-125 transition active:scale-95" data-emoji="😂">😂</button>
+                        <button class="story-reaction-btn text-2xl hover:scale-125 transition active:scale-95" data-emoji="😮">😮</button>
+                        <button class="story-reaction-btn text-2xl hover:scale-125 transition active:scale-95" data-emoji="😢">😢</button>
+                        <button class="story-reaction-btn text-2xl hover:scale-125 transition active:scale-95" data-emoji="🔥">🔥</button>
+                        <button class="story-reaction-btn text-2xl hover:scale-125 transition active:scale-95" data-emoji="👍">👍</button>
                     </div>
                     <div class="flex gap-2">
                         <input id="story-comment-input" class="flex-1 bg-white/20 border border-white/30 rounded-full px-4 py-2 text-xs text-white outline-none placeholder-white/50" placeholder="Reply to story…" maxlength="120" />
@@ -1130,6 +1156,135 @@
             <a id="fb-viewer-download-btn" href="" target="_blank" download="profile-photo.jpg" class="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold flex items-center gap-2 transition">
                 <i class="fas fa-download"></i> Save Photo
             </a>
+        </div>
+    </div>
+
+    <!-- Share Modal (Instagram Style Share Sheet) -->
+    <div id="share-modal" class="modal-overlay">
+        <div class="modal-box !max-w-md !p-0 overflow-hidden">
+            <div class="p-4 border-b border-[var(--border-color)] flex items-center justify-between">
+                <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <i class="fas fa-paper-plane text-[#0095f6]"></i> Share
+                </h3>
+                <button class="text-gray-400 hover:text-white" id="close-share-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+                <!-- Item Preview Card -->
+                <div id="share-item-preview" class="p-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] flex items-center gap-3">
+                    <img id="share-preview-thumb" class="w-12 h-12 rounded-lg object-cover bg-black flex-shrink-0" src="" alt="Preview" />
+                    <div class="flex-1 min-w-0">
+                        <div id="share-preview-author" class="text-xs font-bold text-[var(--text-primary)] truncate"></div>
+                        <div id="share-preview-text" class="text-[11px] text-gray-400 truncate"></div>
+                    </div>
+                </div>
+
+                <!-- "Add to your story" Highlight Button (Instagram Style) -->
+                <button id="share-to-story-action" class="w-full p-3 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:opacity-95 text-white font-bold text-xs flex items-center justify-between shadow-lg transition active:scale-[0.98]">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-sm"><i class="fas fa-plus-circle"></i></div>
+                        <div class="text-left">
+                            <div class="font-bold text-xs" id="share-to-story-title">Add reel to your story</div>
+                            <div class="text-[10px] text-white/80">Share this with your followers for 24h</div>
+                        </div>
+                    </div>
+                    <i class="fas fa-chevron-right text-xs text-white/80"></i>
+                </button>
+
+                <!-- Send to Friends Direct Message -->
+                <div>
+                    <div class="text-xs font-semibold text-gray-400 mb-2 flex items-center justify-between">
+                        <span>Send in Direct Message</span>
+                        <span class="text-[10px] text-blue-400" id="share-friend-count"></span>
+                    </div>
+                    <div class="relative mb-2.5">
+                        <i class="fas fa-search absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+                        <input id="share-friend-search" class="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="Search friends…" />
+                    </div>
+                    <div id="share-friends-list" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        <!-- Rendered dynamically -->
+                    </div>
+                </div>
+
+                <!-- Quick Actions Tray -->
+                <div class="pt-2 border-t border-[var(--border-color)]">
+                    <div class="text-[11px] font-semibold text-gray-400 mb-2">Share via</div>
+                    <div class="grid grid-cols-4 gap-2">
+                        <button id="share-action-copy" class="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-soft)] hover:bg-[var(--border-color)] text-xs text-[var(--text-primary)] transition">
+                            <div class="w-9 h-9 rounded-full bg-blue-500/20 text-[#0095f6] flex items-center justify-center text-sm"><i class="fas fa-link"></i></div>
+                            <span class="text-[10px] font-medium">Copy Link</span>
+                        </button>
+                        <button id="share-action-native" class="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-soft)] hover:bg-[var(--border-color)] text-xs text-[var(--text-primary)] transition">
+                            <div class="w-9 h-9 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-sm"><i class="fas fa-share-nodes"></i></div>
+                            <span class="text-[10px] font-medium">Share via</span>
+                        </button>
+                        <button id="share-action-whatsapp" class="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-soft)] hover:bg-[var(--border-color)] text-xs text-[var(--text-primary)] transition">
+                            <div class="w-9 h-9 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-sm"><i class="fab fa-whatsapp"></i></div>
+                            <span class="text-[10px] font-medium">WhatsApp</span>
+                        </button>
+                        <button id="share-action-messenger" class="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-soft)] hover:bg-[var(--border-color)] text-xs text-[var(--text-primary)] transition">
+                            <div class="w-9 h-9 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-sm"><i class="fab fa-facebook-messenger"></i></div>
+                            <span class="text-[10px] font-medium">Messenger</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instagram 3-Dot Options Bottom Sheet (Post & Reel) -->
+    <div id="post-options-modal" class="modal-overlay">
+        <div class="modal-box !max-w-sm !p-0 overflow-hidden !rounded-3xl">
+            <div class="p-3 text-center border-b border-[var(--border-color)]">
+                <div class="w-10 h-1 rounded-full bg-gray-600 mx-auto mb-2"></div>
+                <h4 class="text-xs font-bold text-gray-400">Post Options</h4>
+            </div>
+            <div class="divide-y divide-[var(--border-color)] text-xs font-semibold">
+                <button id="post-option-save" class="w-full py-3.5 px-4 text-left hover:bg-[var(--bg-soft)] flex items-center justify-between text-[var(--text-primary)] transition">
+                    <span class="flex items-center gap-3"><i class="far fa-bookmark text-base w-5"></i> <span id="post-option-save-text">Save to Bookmarks</span></span>
+                    <i class="fas fa-chevron-right text-[10px] text-gray-500"></i>
+                </button>
+                <button id="post-option-share" class="w-full py-3.5 px-4 text-left hover:bg-[var(--bg-soft)] flex items-center justify-between text-[var(--text-primary)] transition">
+                    <span class="flex items-center gap-3"><i class="fas fa-paper-plane text-base w-5 text-[#0095f6]"></i> Share via…</span>
+                    <i class="fas fa-chevron-right text-[10px] text-gray-500"></i>
+                </button>
+                <button id="post-option-copy" class="w-full py-3.5 px-4 text-left hover:bg-[var(--bg-soft)] flex items-center justify-between text-[var(--text-primary)] transition">
+                    <span class="flex items-center gap-3"><i class="fas fa-link text-base w-5 text-purple-400"></i> Copy In-App Link</span>
+                    <i class="fas fa-chevron-right text-[10px] text-gray-500"></i>
+                </button>
+                <button id="post-option-author" class="w-full py-3.5 px-4 text-left hover:bg-[var(--bg-soft)] flex items-center justify-between text-[var(--text-primary)] transition">
+                    <span class="flex items-center gap-3"><i class="fas fa-user text-base w-5 text-green-400"></i> About this account</span>
+                    <i class="fas fa-chevron-right text-[10px] text-gray-500"></i>
+                </button>
+                <button id="post-option-report" class="w-full py-3.5 px-4 text-left hover:bg-[var(--bg-soft)] flex items-center justify-between text-orange-400 transition">
+                    <span class="flex items-center gap-3"><i class="fas fa-flag text-base w-5"></i> Report</span>
+                    <i class="fas fa-chevron-right text-[10px] text-gray-500"></i>
+                </button>
+                <button id="post-option-delete" class="w-full py-3.5 px-4 text-left hover:bg-[var(--bg-soft)] flex items-center justify-between text-red-500 transition hidden">
+                    <span class="flex items-center gap-3"><i class="fas fa-trash text-base w-5"></i> Delete Post</span>
+                    <i class="fas fa-chevron-right text-[10px] text-gray-500"></i>
+                </button>
+                <button id="close-post-options" class="w-full py-3.5 text-center text-gray-400 hover:bg-[var(--bg-soft)] transition">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instagram Reel Comments Slide-up Modal -->
+    <div id="reel-comments-modal" class="modal-overlay">
+        <div class="modal-box !max-w-md !p-0 overflow-hidden !rounded-t-3xl md:!rounded-3xl">
+            <div class="p-4 border-b border-[var(--border-color)] flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-comments text-[#0095f6]"></i>
+                    <h3 class="font-bold text-sm text-[var(--text-primary)]">Comments</h3>
+                </div>
+                <button class="text-gray-400 hover:text-white" id="close-reel-comments"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="reel-comments-list" class="p-4 space-y-3 max-h-[55vh] overflow-y-auto min-h-[140px]"></div>
+            <div class="p-3 bg-[var(--bg-soft)] border-t border-[var(--border-color)] flex gap-2 items-center">
+                <input id="reel-comment-input" class="flex-1 px-4 py-2 rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="Add a comment…" />
+                <button id="reel-comment-submit" class="px-4 py-2 bg-[#0095f6] hover:bg-[#1877f2] text-white font-bold rounded-full text-xs transition">Post</button>
+            </div>
         </div>
     </div>
 
