@@ -3385,14 +3385,17 @@ async function addReelToStory(item, type = "reel") {
     showLoader("Adding to your story…");
     try {
         const author = await getUserByUID(item.uid);
-        const thumb = item.thumbnail || (item.youtubeId ? `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` : (item.images?.[0] || ''));
+        const ytId = item.youtubeId || (item.youtubeUrl ? extractYouTubeId(item.youtubeUrl) : (item.text ? extractYouTubeId(item.text) : null));
+        const thumb = item.imageUrl || item.thumbnail || (ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : (item.images?.[0] || ''));
         
         const sr = push(ref(db, "stories"));
         await set(sr, {
             storyId: sr.key,
             uid: currentUser.uid,
-            type: type === "reel" ? "reel" : "post",
-            youtubeId: item.youtubeId || null,
+            type: ytId ? "reel" : (type === "reel" ? "reel" : "post"),
+            youtubeId: ytId || null,
+            youtubeUrl: item.youtubeUrl || null,
+            videoUrl: item.videoUrl || null,
             title: item.text || (type === "reel" ? "Reel Video" : "Post"),
             imageUrl: thumb,
             authorUid: item.uid,
@@ -3515,6 +3518,29 @@ $("your-story-item")?.addEventListener("click", async () => {
     else openStoryModal();
 });
 
+const viewedStoriesLocal = new Set(JSON.parse(localStorage.getItem("viewed_stories") || "[]"));
+
+function isStoryViewed(st) {
+    if (!st || !st.storyId) return false;
+    if (viewedStoriesLocal.has(st.storyId)) return true;
+    if (currentUser && st.views && st.views[currentUser.uid]) {
+        viewedStoriesLocal.add(st.storyId);
+        return true;
+    }
+    return false;
+}
+
+function markStoryAsViewed(st) {
+    if (!st || !st.storyId) return;
+    viewedStoriesLocal.add(st.storyId);
+    try {
+        localStorage.setItem("viewed_stories", JSON.stringify(Array.from(viewedStoriesLocal).slice(-300)));
+    } catch(e) {}
+    if (currentUser && (!st.views || !st.views[currentUser.uid])) {
+        set(ref(db, `stories/${st.storyId}/views/${currentUser.uid}`), Date.now()).catch(() => {});
+    }
+}
+
 function loadStories() {
     const container = $("stories-list");
     if (!container) return;
@@ -3545,20 +3571,38 @@ function loadStories() {
         }
 
         container.innerHTML = "";
-        const userStories = {};
-        valid.forEach(st => { if (!userStories[st.uid] || st.createdAt > userStories[st.uid].createdAt) userStories[st.uid] = st; });
-        for (const st of Object.values(userStories)) {
-            const user = await getUserByUID(st.uid);
-            if (!user || isBlocked(st.uid) || !canSeeContent(st, st.uid)) continue;
+        const userStoriesMap = {};
+        valid.forEach(st => { 
+            if (!userStoriesMap[st.uid]) userStoriesMap[st.uid] = [];
+            userStoriesMap[st.uid].push(st);
+        });
+
+        const userEntries = Object.entries(userStoriesMap).map(([uid, stories]) => {
+            const hasUnseen = stories.some(st => !isStoryViewed(st));
+            const latestStory = stories.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+            return { uid, stories, hasUnseen, latestStory };
+        });
+
+        // Instagram Sorting: Unseen stories first (newest to oldest), then seen stories (newest to oldest)
+        userEntries.sort((a, b) => {
+            if (a.hasUnseen && !b.hasUnseen) return -1;
+            if (!a.hasUnseen && b.hasUnseen) return 1;
+            return (b.latestStory.createdAt || 0) - (a.latestStory.createdAt || 0);
+        });
+
+        for (const entry of userEntries) {
+            const user = await getUserByUID(entry.uid);
+            if (!user || isBlocked(entry.uid) || !canSeeContent(entry.latestStory, entry.uid)) continue;
             const item = document.createElement("div");
-            item.className = "story-item";
+            item.className = `story-item ${entry.hasUnseen ? '' : 'seen'}`;
+            item.dataset.uid = entry.uid;
             item.innerHTML = `
-                <div class="story-ring">
+                <div class="story-ring ${entry.hasUnseen ? '' : 'seen'}">
                     <img src="${user.photoURL || DEFAULT_AVATAR}" alt="${escapeHTML(user.nickname || "User")}" />
                 </div>
                 <span class="story-name">${escapeHTML(user.nickname?.split(" ")[0] || "User")}</span>
             `;
-            item.onclick = () => openStoryViewer(st.uid);
+            item.onclick = () => openStoryViewer(entry.uid);
             container.appendChild(item);
         }
     });
@@ -3572,7 +3616,11 @@ async function openStoryViewer(uid) {
     const userStories = Object.values(data).filter(st => st.uid === uid && st.expiresAt > Date.now()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     if (!userStories.length) return;
     storyViewerStories = userStories;
-    storyViewerIndex = 0;
+    
+    // Jump to first unseen story if any exist
+    const firstUnseenIdx = userStories.findIndex(st => !isStoryViewed(st));
+    storyViewerIndex = firstUnseenIdx >= 0 ? firstUnseenIdx : 0;
+    
     $("story-viewer")?.classList.add("active");
     renderStorySlide();
 }
@@ -3582,12 +3630,16 @@ function closeStoryViewer() {
     const player = $("story-reel-player");
     if (player) player.innerHTML = "";
     $("story-viewer")?.classList.remove("active");
+    loadStories();
 }
 
 function renderStorySlide() {
     if (storyProgressInterval) { clearInterval(storyProgressInterval); storyProgressInterval = null; }
     const st = storyViewerStories[storyViewerIndex];
     if (!st) { closeStoryViewer(); return; }
+
+    // Mark current slide as viewed immediately
+    markStoryAsViewed(st);
 
     const progressBar = $("story-progress-bar");
     if (progressBar) progressBar.style.width = "0%";
@@ -3609,7 +3661,11 @@ function renderStorySlide() {
     const reelContainer = $("story-viewer-reel-container");
     const reelPlayer = $("story-reel-player");
 
-    if (st.type === "reel" && st.youtubeId) {
+    const ytId = st.youtubeId || (st.youtubeUrl ? extractYouTubeId(st.youtubeUrl) : (st.title ? extractYouTubeId(st.title) : (st.imageUrl ? extractYouTubeId(st.imageUrl) : null)));
+    const isVideoFile = st.videoUrl || (st.imageUrl && (st.imageUrl.endsWith(".mp4") || st.imageUrl.endsWith(".webm") || st.imageUrl.includes("video/upload")));
+    const isReel = ytId || isVideoFile || st.type === "reel";
+
+    if (isReel) {
         // Render Instagram Reel in Story Slide
         if (imgEl) imgEl.classList.add("hidden");
         if (reelContainer) reelContainer.classList.remove("hidden");
@@ -3624,7 +3680,13 @@ function renderStorySlide() {
         if (caption) caption.textContent = st.title || "Reel video";
 
         if (reelPlayer) {
-            reelPlayer.innerHTML = `<iframe class="w-full h-full" src="https://www.youtube-nocookie.com/embed/${st.youtubeId}?autoplay=1&mute=0&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+            if (ytId) {
+                reelPlayer.innerHTML = `<iframe class="w-full h-full rounded-xl pointer-events-auto" src="https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&mute=0&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1&loop=1&playlist=${ytId}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+            } else if (isVideoFile) {
+                reelPlayer.innerHTML = `<video class="w-full h-full object-cover rounded-xl pointer-events-auto" src="${st.videoUrl || st.imageUrl}" autoplay playsinline controls></video>`;
+            } else {
+                reelPlayer.innerHTML = `<img src="${st.imageUrl || DEFAULT_AVATAR}" class="w-full h-full object-cover rounded-xl" />`;
+            }
         }
 
         if (watchBtn) {
@@ -3645,9 +3707,9 @@ function renderStorySlide() {
         }
     }
 
-    // Auto-advance timer (6 seconds per slide)
+    // Auto-advance timer (15 seconds for video/reel, 6 seconds for photo)
     const startTime = Date.now();
-    const duration = 6000;
+    const duration = isReel ? 15000 : 6000;
     storyProgressInterval = setInterval(() => {
         const elapsed = Date.now() - startTime;
         const pct = Math.min(100, (elapsed / duration) * 100);

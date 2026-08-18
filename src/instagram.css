@@ -350,7 +350,15 @@ html, body {
   display: block;
 }
 .story-ring.seen {
-  background: var(--border-color);
+  background: var(--border-color) !important;
+  opacity: 0.82;
+}
+.story-ring.seen img {
+  border-color: var(--bg-primary);
+}
+.story-item.seen .story-name {
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 .story-ring-add {
   width: 68px;
