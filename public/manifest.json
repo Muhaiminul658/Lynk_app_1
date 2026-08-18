@@ -1,0 +1,20 @@
+{
+  "name": "Lynk",
+  "short_name": "Lynk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "https://api.iconify.design/lucide:instagram.svg?color=%23e1306c",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "https://api.iconify.design/lucide:instagram.svg?color=%23e1306c",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

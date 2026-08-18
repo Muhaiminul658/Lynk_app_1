@@ -1,0 +1,6 @@
+{
+  "name": "Lynk",
+  "description": "Instagram-styled social platform with stories, reels, direct messaging, courses, and digital wallet",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
