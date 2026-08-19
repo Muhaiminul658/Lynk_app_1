@@ -157,6 +157,108 @@ window.initPusherBeams = initPusherBeams;
 window.clearPusherBeamsInterests = clearPusherBeamsInterests;
 window.triggerPusherPushNotification = triggerPusherPushNotification;
 
+// =========================================================
+// HIGH-FIDELITY NOTIFICATION SOUND ("Pu-Tung" / "পুটুং" Pop Chime)
+// =========================================================
+let audioContextInstance = null;
+
+function getNotificationAudioContext() {
+    if (!audioContextInstance && typeof window !== "undefined") {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+            audioContextInstance = new AudioCtx();
+        }
+    }
+    if (audioContextInstance && audioContextInstance.state === "suspended") {
+        audioContextInstance.resume().catch(() => {});
+    }
+    return audioContextInstance;
+}
+
+// Unlock audio context on initial user interaction (click / touch / key)
+if (typeof document !== "undefined") {
+    const unlockAudio = () => {
+        getNotificationAudioContext();
+        document.removeEventListener("click", unlockAudio);
+        document.removeEventListener("touchstart", unlockAudio);
+        document.removeEventListener("keydown", unlockAudio);
+    };
+    document.addEventListener("click", unlockAudio, { once: true });
+    document.addEventListener("touchstart", unlockAudio, { once: true });
+    document.addEventListener("keydown", unlockAudio, { once: true });
+}
+
+function playPutungSound(mode = "receive") {
+    try {
+        const ctx = getNotificationAudioContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+
+        if (mode === "send") {
+            // Outgoing message bubble pop sound
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(440, now);
+            osc.frequency.exponentialRampToValueAtTime(880, now + 0.07);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.1);
+            return;
+        }
+
+        // Classic "Pu-Tung!" Incoming Notification Pop Chime
+        // Step 1: "Pu" (Warm gentle rising swell)
+        const osc1 = ctx.createOscillator();
+        const gain1 = ctx.createGain();
+        osc1.type = "sine";
+        osc1.frequency.setValueAtTime(587.33, now); // D5
+        osc1.frequency.exponentialRampToValueAtTime(880.00, now + 0.06); // A5
+        gain1.gain.setValueAtTime(0.25, now);
+        gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+        osc1.connect(gain1);
+        gain1.connect(ctx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.08);
+
+        // Step 2: "Tung!" (Bright glass chime resonance)
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        const oscHarmonic = ctx.createOscillator();
+        const gainHarmonic = ctx.createGain();
+
+        osc2.type = "sine";
+        osc2.frequency.setValueAtTime(1318.51, now + 0.06); // E6
+        osc2.frequency.exponentialRampToValueAtTime(1174.66, now + 0.35); // D6
+        gain2.gain.setValueAtTime(0, now);
+        gain2.gain.setValueAtTime(0.35, now + 0.06);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+
+        oscHarmonic.type = "triangle";
+        oscHarmonic.frequency.setValueAtTime(1975.53, now + 0.06); // B6 sparkle
+        gainHarmonic.gain.setValueAtTime(0, now);
+        gainHarmonic.gain.setValueAtTime(0.12, now + 0.06);
+        gainHarmonic.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        oscHarmonic.connect(gainHarmonic);
+        gainHarmonic.connect(ctx.destination);
+
+        osc2.start(now + 0.06);
+        osc2.stop(now + 0.42);
+        oscHarmonic.start(now + 0.06);
+        oscHarmonic.stop(now + 0.28);
+    } catch (e) {
+        console.warn("[Sound] playback notice:", e);
+    }
+}
+
+window.playPutungSound = playPutungSound;
+
 function showView(id) { 
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   $(id)?.classList.add("active"); 
@@ -313,9 +415,23 @@ function formatTimeAgo(ts) {
 window.formatTimeAgo = formatTimeAgo;
 
 function getPrivacyLabel(val) { return val === "public" ? "🌍 Public" : "🔒 Personal"; }
-function isBlocked(uid) { return !!blockedCache[uid]; }
-function isFollowing(uid) { return !!followingCache[uid]; }
-function isFriend(uid) { return !!friendsCache[uid]; }
+function isBlocked(uid) { return uid ? !!blockedCache[uid] : false; }
+function isFollowing(uid) { return uid ? !!followingCache[uid] : false; }
+function isFriend(uid) { return uid ? !!friendsCache[uid] : false; }
+
+function canSeeContent(item, authorUid) {
+    if (!item) return false;
+    const uid = authorUid || item.uid || item.authorUid;
+    if (!uid) return true;
+    if (isBlocked(uid)) return false;
+    if (currentUser && currentUser.uid === uid) return true;
+    const privacy = item.privacy || "public";
+    if (privacy === "public") return true;
+    if (privacy === "friends") return isFriend(uid);
+    if (privacy === "personal") return currentUser && currentUser.uid === uid;
+    return true;
+}
+window.canSeeContent = canSeeContent;
 
 // State variables
 let currentUser = null,
@@ -551,14 +667,22 @@ onAuthStateChanged(auth, async user => {
         if (profileSnap && profileSnap.exists()) {
             currentUserData = profileSnap.val();
             setCachedUser(user.uid, currentUserData);
+        } else {
+            currentUserData = {
+                uid: user.uid,
+                email: user.email || "",
+                nickname: user.displayName || "User",
+                username: user.email ? user.email.split("@")[0] : "user",
+                photoURL: user.photoURL || DEFAULT_AVATAR
+            };
         }
 
-        isAdmin = currentUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-        if (isAdmin) {
+        isAdmin = currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+        if (isAdmin && currentUser?.uid) {
             await set(ref(db, `admins/${currentUser.uid}`), { role: "admin", email: ADMIN_EMAIL });
         }
 
-        if (!currentUserData.gender || !currentUserData.dob) {
+        if (currentUserData && (!currentUserData.gender || !currentUserData.dob)) {
             if (!mandatoryCheckDone) setTimeout(() => showMandatoryModal(), 300);
         } else {
             mandatoryCheckDone = true;
@@ -1162,16 +1286,6 @@ $("privacy-switch")?.addEventListener("click", async () => {
     showToast(`Account is now ${newPrivacy === "public" ? "🌍 Public" : "🔒 Personal"}`, "success");
 });
 
-function canSeeContent(item, itemOwnerUid) {
-    if (!currentUser) return false;
-    if (itemOwnerUid === currentUser.uid) return true;
-    if (isBlocked(itemOwnerUid)) return false;
-    if (isAdmin) return true;
-    const privacy = item.privacy || "public";
-    if (privacy === "public") return true;
-    return !!friendsCache[itemOwnerUid];
-}
-
 // Instagram Notes System
 $("create-note-profile")?.addEventListener("click", openNoteModal);
 
@@ -1357,7 +1471,7 @@ async function renderChatTop() {
 }
 
 async function sendFriendRequest(user) {
-    if (!currentUser || user.uid === currentUser.uid) return;
+    if (!currentUser || !user || !user.uid || user.uid === currentUser.uid) return;
     if (isBlocked(user.uid)) { showToast("You have blocked this user.", "error"); return; }
     try {
         await set(ref(db, `friendRequests/${user.uid}/${currentUser.uid}`), { 
@@ -1429,7 +1543,7 @@ async function rejectFriendRequest(uid) {
 
 // User Profile Full Page
 async function openUserProfileFull(user) {
-    if (!user) return;
+    if (!user || !user.uid) return;
     if (isBlocked(user.uid)) { showToast("You have blocked this user.", "error"); return; }
     viewingUserProfile = user;
     const followingSnap = await get(ref(db, `following/${user.uid}`));
@@ -1441,7 +1555,7 @@ async function openUserProfileFull(user) {
 }
 
 async function renderUserProfilePage(user) {
-    if (!user) return;
+    if (!user || !user.uid) return;
     const photo = user.photoURL || DEFAULT_AVATAR,
           cover = user.coverPhoto || DEFAULT_COVER;
     $("user-profile-page-title").textContent = user.nickname || "Profile";
@@ -1457,8 +1571,8 @@ async function renderUserProfilePage(user) {
     $("user-profile-page-following").textContent = user._followingCount || 0;
     $("user-profile-page-followers").textContent = user._followerCount || 0;
     const ps = await get(ref(db, "posts"));
-    const allPosts = ps.exists() ? Object.values(ps.val()) : [];
-    const userPosts = allPosts.filter(p => p.uid === user.uid).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const allPosts = ps.exists() ? Object.values(ps.val() || {}) : [];
+    const userPosts = allPosts.filter(p => p && p.uid === user.uid).sort((a, b) => ((b && b.createdAt) || 0) - ((a && a.createdAt) || 0));
     $("user-profile-page-post-count").textContent = userPosts.length;
     const isMe = currentUser?.uid === user.uid;
     const actions = $("user-profile-page-actions");
@@ -1552,6 +1666,7 @@ async function openChat(user) {
                   text: "📷 Photo", type: "image", imageUrl: url, createdAt: serverTimestamp(), seen: false 
                 });
                 await updateChatList("📷 Photo");
+                playPutungSound("send");
                 
                 // Send Pusher Beams Push Notification
                 triggerPusherPushNotification({
@@ -1606,11 +1721,25 @@ function closeChatInternal(pushBack = true) {
     }
 }
 
+let lastChatMsgCount = 0;
+let initialChatLoadDone = false;
+
 function loadChatMessages() {
     if (!currentUser || !currentChatUser || !currentChatId) return;
     if (activeChatMessageListener) activeChatMessageListener();
+    initialChatLoadDone = false;
+    lastChatMsgCount = 0;
+
     activeChatMessageListener = onValue(ref(db, `messages/${currentChatId}`), s => {
         const msgs = Object.values(s.val() || {}).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        if (initialChatLoadDone && msgs.length > lastChatMsgCount) {
+            const latestMsg = msgs[msgs.length - 1];
+            if (latestMsg && latestMsg.senderId !== currentUser.uid) {
+                playPutungSound("receive");
+            }
+        }
+        lastChatMsgCount = msgs.length;
+        initialChatLoadDone = true;
         renderChatMessages(msgs);
     });
 }
@@ -1705,6 +1834,7 @@ $("chat-form")?.addEventListener("submit", async e => {
         input.value = "";
         stopTyping();
         await updateChatList(text);
+        playPutungSound("send");
 
         // Send Pusher Beams Push Notification
         triggerPusherPushNotification({
@@ -1975,6 +2105,15 @@ async function sendNotificationToUser(targetUid, notifData) {
             createdAt: serverTimestamp(),
             ...notifData
         });
+
+        // Trigger device push notification
+        triggerPusherPushNotification({
+            targetUid,
+            title: notifData.title || `${currentUserData?.nickname || 'Someone'} on Lynk`,
+            body: notifData.text || "You have a new notification",
+            icon: currentUserData?.photoURL || "/icon-192.jpg",
+            deepLink: window.location.origin
+        });
     } catch (err) {
         console.error("sendNotificationToUser error:", err);
     }
@@ -2193,34 +2332,73 @@ function hideMentionSuggestions() {
 // =========================================================
 
 let currentNotifFilter = "all";
+let notifKnownIds = {};
+let notifInitialized = false;
+let friendReqKnownIds = {};
+let friendReqInitialized = false;
 
 function setupUserNotificationListener() {
     if (!currentUser) return;
 
-    // Listen to user notifications
+    // Listen to user notifications (likes, comments, mentions, reactions, etc.)
     onValue(ref(db, `userNotifications/${currentUser.uid}`), s => {
         updateNotificationsCount();
         if (s.exists()) {
-            const items = Object.values(s.val() || {});
-            const unread = items.filter(n => n && !n.read).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-            if (unread.length > 0) {
-                const latest = unread[0];
-                if (window._lastNotifId !== latest.id && latest.createdAt > (Date.now() - 15000)) {
-                    window._lastNotifId = latest.id;
+            const raw = s.val() || {};
+            const items = Object.values(raw);
+            
+            if (!notifInitialized) {
+                notifInitialized = true;
+                Object.keys(raw).forEach(k => { notifKnownIds[k] = true; });
+                return;
+            }
+
+            for (const item of items) {
+                if (!item || !item.id) continue;
+                if (!notifKnownIds[item.id] && !item.read) {
+                    notifKnownIds[item.id] = true;
+                    // Play putung sound effect & display banner
+                    playPutungSound("receive");
                     showPushNotification({
-                        icon: latest.fromPhoto || DEFAULT_AVATAR,
-                        title: latest.title || latest.fromName || "Lynk",
-                        body: latest.text || "You have a new notification",
+                        icon: item.fromPhoto || DEFAULT_AVATAR,
+                        title: item.title || item.fromName || "Lynk Notification",
+                        body: item.text || "You have a new notification",
                         onClick: () => showPage("notifications")
                     });
                 }
             }
+        } else {
+            notifInitialized = true;
         }
     });
 
-    // Listen to friend requests
-    onValue(ref(db, `friendRequests/${currentUser.uid}`), () => {
+    // Listen to incoming friend requests
+    onValue(ref(db, `friendRequests/${currentUser.uid}`), s => {
         updateNotificationsCount();
+        if (s.exists()) {
+            const raw = s.val() || {};
+            if (!friendReqInitialized) {
+                friendReqInitialized = true;
+                Object.keys(raw).forEach(k => { friendReqKnownIds[k] = true; });
+                return;
+            }
+
+            for (const [fromUid, req] of Object.entries(raw)) {
+                if (!friendReqKnownIds[fromUid]) {
+                    friendReqKnownIds[fromUid] = true;
+                    // Play putung sound effect & display banner for friend request
+                    playPutungSound("receive");
+                    showPushNotification({
+                        icon: req.fromPhoto || DEFAULT_AVATAR,
+                        title: `${req.fromName || "Someone"} sent you a friend request 🤝`,
+                        body: "Tap to view and connect on Lynk",
+                        onClick: () => showPage("notifications")
+                    });
+                }
+            }
+        } else {
+            friendReqInitialized = true;
+        }
     });
 }
 
@@ -2620,6 +2798,7 @@ function setupMessageNotifications() {
 }
 
 function showPushNotification({ icon, title, body, onClick }) {
+    playPutungSound("receive");
     const el = $("push-notification");
     if (!el) return;
     $("push-notif-icon").src = icon || DEFAULT_AVATAR;
@@ -2898,14 +3077,15 @@ async function loadFeed() {
     if (!container) return;
     try {
         const snap = await get(ref(db, "posts"));
-        const posts = snap.exists() ? Object.values(snap.val()) : [];
-        posts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        const posts = snap.exists() ? Object.values(snap.val() || {}) : [];
+        posts.sort((a, b) => ((b && b.createdAt) || 0) - ((a && a.createdAt) || 0));
         container.innerHTML = "";
         if (!posts.length) {
             container.innerHTML = `<div class="dark-card p-10 text-center text-gray-500 text-xs">No posts yet. Be the first to share!</div>`;
             return;
         }
         for (const post of posts) {
+            if (!post || !post.uid) continue;
             if (isBlocked(post.uid)) continue;
             if (!canSeeContent(post, post.uid)) continue;
             const user = await getUserByUID(post.uid);
@@ -3128,8 +3308,8 @@ async function renderProfilePosts() {
     if (!container || !currentUserData) return;
     container.innerHTML = `<div class="text-center text-gray-500 py-4 text-xs">Loading…</div>`;
     const s = await get(ref(db, "posts"));
-    const all = s.exists() ? Object.values(s.val()) : [];
-    const myPosts = all.filter(p => p.uid === currentUser.uid).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const all = s.exists() ? Object.values(s.val() || {}) : [];
+    const myPosts = all.filter(p => p && p.uid === currentUser?.uid).sort((a, b) => ((b && b.createdAt) || 0) - ((a && a.createdAt) || 0));
     container.innerHTML = "";
     if (!myPosts.length) { 
       container.innerHTML = `<div class="text-center text-gray-500 py-8 dark-card text-xs">No posts shared yet.</div>`; 
@@ -3376,6 +3556,7 @@ async function sendDirectMessageToUser(targetUid, text, type = "text", imageUrl 
             deepLink: `${window.location.origin}#chats`
         });
 
+        playPutungSound("send");
         return true;
     } catch (err) {
         console.error("sendDirectMessageToUser error:", err);
@@ -3624,7 +3805,7 @@ $("your-story-item")?.addEventListener("click", async () => {
     if (!currentUser) return;
     const s = await get(ref(db, "stories"));
     const data = s.val() || {};
-    const myStories = Object.values(data).filter(st => st.uid === currentUser.uid && st.expiresAt > Date.now());
+    const myStories = Object.values(data).filter(st => st && st.uid === currentUser.uid && st.expiresAt > Date.now());
     if (myStories.length > 0) openStoryViewer(currentUser.uid);
     else openStoryModal();
 });
@@ -3658,8 +3839,8 @@ function loadStories() {
     onValue(ref(db, "stories"), async s => {
         const data = s.val() || {};
         const now = Date.now();
-        const valid = Object.values(data).filter(st => st.expiresAt > now && st.uid !== currentUser?.uid);
-        const myStories = Object.values(data).filter(st => st.uid === currentUser?.uid && st.expiresAt > now);
+        const valid = Object.values(data).filter(st => st && st.uid && st.expiresAt > now && st.uid !== currentUser?.uid);
+        const myStories = Object.values(data).filter(st => st && st.uid && st.uid === currentUser?.uid && st.expiresAt > now);
         
         // Update user's story ring & avatar
         const yourAvatar = $("your-story-avatar");
@@ -3684,13 +3865,14 @@ function loadStories() {
         container.innerHTML = "";
         const userStoriesMap = {};
         valid.forEach(st => { 
+            if (!st || !st.uid) return;
             if (!userStoriesMap[st.uid]) userStoriesMap[st.uid] = [];
             userStoriesMap[st.uid].push(st);
         });
 
         const userEntries = Object.entries(userStoriesMap).map(([uid, stories]) => {
             const hasUnseen = stories.some(st => !isStoryViewed(st));
-            const latestStory = stories.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+            const latestStory = stories.sort((a, b) => ((b && b.createdAt) || 0) - ((a && a.createdAt) || 0))[0];
             return { uid, stories, hasUnseen, latestStory };
         });
 
@@ -3698,10 +3880,11 @@ function loadStories() {
         userEntries.sort((a, b) => {
             if (a.hasUnseen && !b.hasUnseen) return -1;
             if (!a.hasUnseen && b.hasUnseen) return 1;
-            return (b.latestStory.createdAt || 0) - (a.latestStory.createdAt || 0);
+            return ((b.latestStory && b.latestStory.createdAt) || 0) - ((a.latestStory && a.latestStory.createdAt) || 0);
         });
 
         for (const entry of userEntries) {
+            if (!entry.uid) continue;
             const user = await getUserByUID(entry.uid);
             if (!user || isBlocked(entry.uid) || !canSeeContent(entry.latestStory, entry.uid)) continue;
             const item = document.createElement("div");
@@ -3722,9 +3905,10 @@ function loadStories() {
 let storyProgressInterval = null;
 
 async function openStoryViewer(uid) {
+    if (!uid) return;
     const s = await get(ref(db, "stories"));
     const data = s.val() || {};
-    const userStories = Object.values(data).filter(st => st.uid === uid && st.expiresAt > Date.now()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const userStories = Object.values(data).filter(st => st && st.uid === uid && st.expiresAt > Date.now()).sort((a, b) => ((a && a.createdAt) || 0) - ((b && b.createdAt) || 0));
     if (!userStories.length) return;
     storyViewerStories = userStories;
     
