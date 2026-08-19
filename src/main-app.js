@@ -79,6 +79,84 @@ function hideLoader() {
   if (gl) gl.style.display = "none"; 
 }
 
+// ==========================================
+// Pusher Beams Push Notifications (Client)
+// ==========================================
+const PUSHER_BEAMS_INSTANCE_ID = "71cf24d7-5e54-48d2-a980-2bd7495d6ef2";
+let beamsClient = null;
+
+async function initPusherBeams(userId) {
+    if (typeof window === "undefined" || !window.PusherPushNotifications) {
+        console.warn("[Pusher Beams] SDK not detected on window.");
+        return;
+    }
+    try {
+        if (!beamsClient) {
+            beamsClient = new window.PusherPushNotifications.Client({
+                instanceId: PUSHER_BEAMS_INSTANCE_ID,
+            });
+        }
+        await beamsClient.start();
+        
+        // Request notification permission if not yet decided
+        if ("Notification" in window && Notification.permission === "default") {
+            try {
+                await Notification.requestPermission();
+            } catch (_) {}
+        }
+
+        if (userId) {
+            const userInterest = `user_${userId}`;
+            await beamsClient.addDeviceInterest(userInterest);
+            await beamsClient.addDeviceInterest("hello");
+            console.log(`[Pusher Beams] Device subscribed to: ${userInterest}, hello`);
+        }
+    } catch (err) {
+        console.warn("[Pusher Beams] Init notice:", err?.message || err);
+    }
+}
+
+async function clearPusherBeamsInterests() {
+    if (beamsClient) {
+        try {
+            await beamsClient.clearDeviceInterests();
+            await beamsClient.stop();
+            console.log("[Pusher Beams] Device interests cleared.");
+        } catch (err) {
+            console.warn("[Pusher Beams] Clear interests notice:", err);
+        }
+    }
+}
+
+async function triggerPusherPushNotification({ targetUid, title, body, icon, deepLink }) {
+    if (!targetUid || (currentUser && targetUid === currentUser.uid)) return;
+    try {
+        const payload = {
+            targetUid,
+            interest: `user_${targetUid}`,
+            title: title || `${currentUserData?.nickname || 'Lynk User'} sent you a message`,
+            body: body || "You have a new message on Lynk",
+            icon: icon || currentUserData?.photoURL || "/icon-192.jpg",
+            deepLink: deepLink || window.location.origin,
+            deep_link: deepLink || window.location.origin
+        };
+
+        fetch("/api/send-push", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        }).catch(err => {
+            console.warn("[Pusher Beams] API trigger error:", err);
+        });
+    } catch (e) {
+        console.warn("[Pusher Beams] Error sending push:", e);
+    }
+}
+
+window.initPusherBeams = initPusherBeams;
+window.clearPusherBeamsInterests = clearPusherBeamsInterests;
+window.triggerPusherPushNotification = triggerPusherPushNotification;
+
 function showView(id) { 
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   $(id)?.classList.add("active"); 
@@ -388,6 +466,7 @@ async function resolveIdentifier(identifier) {
 
 async function logoutUser() { 
   try { 
+    await clearPusherBeamsInterests();
     await removePresence();
     await signOut(auth);
     showToast("Logged out.", "success"); 
@@ -525,6 +604,9 @@ onAuthStateChanged(auth, async user => {
             const composerAvatar = $("composer-user-avatar");
             if (composerAvatar) composerAvatar.src = currentUserData.photoURL || DEFAULT_AVATAR;
         }
+
+        // Initialize Pusher Beams Push Notifications
+        initPusherBeams(user.uid);
 
         initDone = true;
         hideLoader();
@@ -1470,6 +1552,16 @@ async function openChat(user) {
                   text: "📷 Photo", type: "image", imageUrl: url, createdAt: serverTimestamp(), seen: false 
                 });
                 await updateChatList("📷 Photo");
+                
+                // Send Pusher Beams Push Notification
+                triggerPusherPushNotification({
+                  targetUid: currentChatUser.uid,
+                  title: currentUserData?.nickname ? `${currentUserData.nickname} sent a photo` : "New photo on Lynk",
+                  body: "📷 Photo",
+                  icon: currentUserData?.photoURL || DEFAULT_AVATAR,
+                  deepLink: `${window.location.origin}#chats`
+                });
+
                 showToast("Photo sent!", "success");
             } catch (err) { 
               showToast("Could not upload image.", "error"); 
@@ -1613,6 +1705,15 @@ $("chat-form")?.addEventListener("submit", async e => {
         input.value = "";
         stopTyping();
         await updateChatList(text);
+
+        // Send Pusher Beams Push Notification
+        triggerPusherPushNotification({
+          targetUid: currentChatUser.uid,
+          title: currentUserData?.nickname ? `${currentUserData.nickname} sent a message` : "New message on Lynk",
+          body: text,
+          icon: currentUserData?.photoURL || DEFAULT_AVATAR,
+          deepLink: `${window.location.origin}#chats`
+        });
     } catch (err) { 
       showToast("Message could not be sent.", "error"); 
     }
@@ -3265,6 +3366,16 @@ async function sendDirectMessageToUser(targetUid, text, type = "text", imageUrl 
             [`chatList/${currentUser.uid}/${targetUid}`]: { uid: targetUid, lastMessage: text, updatedAt: now, theme: 'default' },
             [`chatList/${targetUid}/${currentUser.uid}`]: { uid: currentUser.uid, lastMessage: text, updatedAt: now, theme: 'default' }
         });
+
+        // Send Pusher Beams Push Notification
+        triggerPusherPushNotification({
+            targetUid: targetUid,
+            title: currentUserData?.nickname ? `${currentUserData.nickname} shared content with you` : "New message on Lynk",
+            body: text,
+            icon: currentUserData?.photoURL || DEFAULT_AVATAR,
+            deepLink: `${window.location.origin}#chats`
+        });
+
         return true;
     } catch (err) {
         console.error("sendDirectMessageToUser error:", err);
