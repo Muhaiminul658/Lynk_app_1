@@ -38,19 +38,54 @@ export default async function handler(req, res) {
     const linkUrl = deepLink || deep_link || "https://lynk-app.vercel.app";
 
     const client = getBeamsClient();
+    const notificationTitle = title || "New Message on Lynk";
+    const notificationBody = body || "You received a new notification on Lynk";
+
     const publishResponse = await client.publishToInterests([targetInterest], {
       web: {
         notification: {
-          title: title || "New message on Lynk",
-          body: body || "You received a new message",
+          title: notificationTitle,
+          body: notificationBody,
           icon: icon || "/icon-192.jpg",
           deep_link: linkUrl,
         },
         data: {
           targetUid: targetUid || "",
+          sound: "notification_sound",
           timestamp: Date.now()
         }
       },
+      fcm: {
+        notification: {
+          title: notificationTitle,
+          body: notificationBody,
+          icon: "ic_stat_name",
+          sound: "notification_sound",
+          channel_id: "lynk_notifications",
+          click_action: "FLUTTER_NOTIFICATION_CLICK"
+        },
+        data: {
+          targetUid: targetUid || "",
+          title: notificationTitle,
+          body: notificationBody,
+          sound: "notification_sound",
+          deep_link: linkUrl
+        }
+      },
+      apns: {
+        aps: {
+          alert: {
+            title: notificationTitle,
+            body: notificationBody,
+          },
+          sound: "notification_sound.wav",
+          badge: 1
+        },
+        data: {
+          targetUid: targetUid || "",
+          deep_link: linkUrl
+        }
+      }
     });
 
     return res.status(200).json({

@@ -729,8 +729,12 @@ onAuthStateChanged(auth, async user => {
             if (composerAvatar) composerAvatar.src = currentUserData.photoURL || DEFAULT_AVATAR;
         }
 
-        // Initialize Pusher Beams Push Notifications
-        initPusherBeams(user.uid);
+        // Initialize Push Notifications (Capacitor Native + Pusher Beams)
+        if (window.initCapacitorPush) {
+            window.initCapacitorPush(user.uid);
+        } else {
+            initPusherBeams(user.uid);
+        }
 
         initDone = true;
         hideLoader();
