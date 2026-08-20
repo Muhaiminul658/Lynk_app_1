@@ -6,6 +6,36 @@ import { startIncomingRingtone, stopIncomingRingtone, startOutgoingRingtone, sto
 
 // Agora Configuration
 const AGORA_APP_ID = "bbed08f1b0494680a4a50b7d842d2f4e";
+const AGORA_APP_CERTIFICATE = "4f276765b71144bd863b9488fc690911";
+
+function hashCode(str) {
+    if (!str) return 0;
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0;
+    }
+    return Math.abs(hash) || 1;
+}
+
+/**
+ * Fetch Agora Dynamic RTC Token from API
+ */
+async function fetchAgoraToken(channelName, uid = 0) {
+    try {
+        const res = await fetch(`/api/agora-token?channel=${encodeURIComponent(channelName)}&uid=${encodeURIComponent(uid)}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.token) {
+                return data.token;
+            }
+        }
+    } catch (e) {
+        console.warn("[AgoraCallManager] /api/agora-token fetch error:", e);
+    }
+    return null;
+}
 
 // Standard Definition (SD) Video Encoder Profile
 // 480p SD resolution (640x480 @ 15fps) provides butter-smooth streaming with minimal data usage
@@ -300,8 +330,17 @@ async function joinAgoraRoom(channelName, callType = "voice") {
             endCallLocally("Participant left the call");
         });
 
-        // Join Agora RTC Channel (Testing mode: token is null)
-        await agoraClient.join(AGORA_APP_ID, channelName, null, null);
+        // Resolve User numeric UID
+        const currentUser = currentUserGetter?.getCurrentUser?.();
+        const numericUid = (currentUser && currentUser.uid) ? Math.abs(hashCode(currentUser.uid)) : Math.floor(Math.random() * 900000) + 100000;
+
+        // Fetch dynamic token for App ID & Certificate
+        updateCallStatusBadge("Connecting…");
+        const token = await fetchAgoraToken(channelName, numericUid);
+
+        // Join Agora RTC Channel with token and numeric UID
+        console.log(`[AgoraCallManager] Joining channel ${channelName} with UID ${numericUid} and token ${token ? "PRESENT" : "NULL"}`);
+        await agoraClient.join(AGORA_APP_ID, channelName, token, numericUid);
 
         // Create Local Microphone Track
         localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
@@ -343,7 +382,9 @@ async function joinAgoraRoom(channelName, callType = "voice") {
 
     } catch (err) {
         console.error("[AgoraCallManager] Agora join error:", err);
-        endCallLocally("Failed to connect audio/video devices");
+        const errMsg = err?.message || "Failed to connect call";
+        window.showToast?.(`Call connection error: ${errMsg}`, "error");
+        endCallLocally("Connection failed");
     }
 }
 

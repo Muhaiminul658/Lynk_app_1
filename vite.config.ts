@@ -3,6 +3,89 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, Plugin} from 'vite';
 import PushNotifications from '@pusher/push-notifications-server';
+import agoraTokenPkg from 'agora-token';
+
+const { RtcTokenBuilder, RtcRole } = agoraTokenPkg as any;
+
+function agoraDevTokenPlugin(): Plugin {
+  const appId = process.env.AGORA_APP_ID || "bbed08f1b0494680a4a50b7d842d2f4e";
+  const appCertificate = process.env.AGORA_APP_CERTIFICATE || "4f276765b71144bd863b9488fc690911";
+
+  return {
+    name: 'agora-dev-token-api',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url || '';
+        if (url.startsWith('/api/agora-token') || url.startsWith('/api/agora/token')) {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 200;
+            res.end();
+            return;
+          }
+
+          const parsedUrl = new URL(url, 'http://localhost:3000');
+          const channelName = parsedUrl.searchParams.get('channel');
+          const uidParam = parsedUrl.searchParams.get('uid') || '0';
+
+          if (!channelName) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'channel query param is required' }));
+            return;
+          }
+
+          try {
+            const expirationTimeInSeconds = 3600 * 24;
+            const currentTimestamp = Math.floor(Date.now() / 1000);
+            const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
+            const role = RtcRole.PUBLISHER;
+
+            let token = '';
+            if (typeof uidParam === 'string' && isNaN(Number(uidParam))) {
+              token = RtcTokenBuilder.buildTokenWithUserAccount(
+                appId,
+                appCertificate,
+                channelName,
+                uidParam,
+                role,
+                privilegeExpiredTs,
+                privilegeExpiredTs
+              );
+            } else {
+              token = RtcTokenBuilder.buildTokenWithUid(
+                appId,
+                appCertificate,
+                channelName,
+                Number(uidParam) || 0,
+                role,
+                privilegeExpiredTs,
+                privilegeExpiredTs
+              );
+            }
+
+            res.statusCode = 200;
+            res.end(JSON.stringify({
+              token,
+              appId,
+              channel: channelName,
+              uid: uidParam
+            }));
+          } catch (err: any) {
+            console.error('Agora Token generation error:', err);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: err?.message || 'Token generation failed' }));
+          }
+          return;
+        }
+        next();
+      });
+    }
+  };
+}
 
 function pusherBeamsDevPlugin(): Plugin {
   const instanceId = process.env.PUSHER_BEAMS_INSTANCE_ID || "71cf24d7-5e54-48d2-a980-2bd7495d6ef2";
@@ -79,7 +162,7 @@ function pusherBeamsDevPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), pusherBeamsDevPlugin()],
+    plugins: [react(), tailwindcss(), agoraDevTokenPlugin(), pusherBeamsDevPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
