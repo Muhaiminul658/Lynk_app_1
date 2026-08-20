@@ -541,5 +541,8 @@ if (typeof window !== "undefined") {
         closeGroupInfoModal
     };
     window.openCreateGroupModal = openCreateGroupModal;
+    window.closeCreateGroupModal = closeCreateGroupModal;
     window.openGroupChat = openGroupChat;
+    window.openGroupInfoModal = openGroupInfoModal;
+    window.closeGroupInfoModal = closeGroupInfoModal;
 }

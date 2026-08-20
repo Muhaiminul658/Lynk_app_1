@@ -753,6 +753,8 @@ onAuthStateChanged(auth, async user => {
         if (currentUserData) {
             const composerAvatar = $("composer-user-avatar");
             if (composerAvatar) composerAvatar.src = currentUserData.photoURL || DEFAULT_AVATAR;
+            const msgHeaderUser = $("messages-header-username");
+            if (msgHeaderUser) msgHeaderUser.textContent = currentUserData.username || currentUserData.nickname || "Messages";
         }
 
         // Initialize Agora Voice & SD Video Call Manager
@@ -843,6 +845,99 @@ $("mandatory-submit")?.addEventListener("click", async () => {
     hideLoader();
 });
 
+// Universal Step-by-Step Back Handler
+export function handleStepBack(triggerHistoryBack = false) {
+    // 1. If Agora Active Call modal is open
+    const activeCallModal = $("active-call-modal");
+    if (activeCallModal && !activeCallModal.classList.contains("hidden")) {
+        if (window.endActiveCall) window.endActiveCall();
+        return true;
+    }
+
+    const incomingCallModal = $("incoming-call-modal");
+    if (incomingCallModal && !incomingCallModal.classList.contains("hidden")) {
+        if (window.declineIncomingCall) window.declineIncomingCall();
+        return true;
+    }
+
+    // 2. If Create Group or Group Info Modal is open
+    const createGroupModal = $("create-group-modal");
+    if (createGroupModal && (createGroupModal.classList.contains("active") || createGroupModal.classList.contains("flex") || !createGroupModal.classList.contains("hidden"))) {
+        if (window.closeCreateGroupModal) window.closeCreateGroupModal();
+        else {
+            createGroupModal.classList.add("hidden");
+            createGroupModal.classList.remove("flex", "active");
+        }
+        return true;
+    }
+
+    const groupInfoModal = $("group-info-modal");
+    if (groupInfoModal && (groupInfoModal.classList.contains("active") || groupInfoModal.classList.contains("flex") || !groupInfoModal.classList.contains("hidden"))) {
+        if (window.closeGroupInfoModal) window.closeGroupInfoModal();
+        else {
+            groupInfoModal.classList.add("hidden");
+            groupInfoModal.classList.remove("flex", "active");
+        }
+        return true;
+    }
+
+    // 3. Other overlay modals (close top-most first)
+    const openModalIds = [
+        "reel-comments-modal",
+        "post-options-modal",
+        "share-modal",
+        "story-modal",
+        "story-viewer-modal",
+        "blocked-modal",
+        "custom-alert-modal",
+        "chat-actions-sheet",
+        "image-viewer-modal",
+        "comments-modal"
+    ];
+
+    for (const modalId of openModalIds) {
+        const el = $(modalId);
+        if (el && (el.classList.contains("active") || el.classList.contains("show") || (el.style.display && el.style.display !== "none" && !el.classList.contains("hidden")))) {
+            el.classList.remove("active", "show");
+            if (el.classList.contains("modal-overlay")) el.style.display = "";
+            return true;
+        }
+    }
+
+    // 4. If Active Chat screen is currently open (close chat and stay on the chat list page)
+    const chatEl = $("active-chat");
+    if (chatEl && !chatEl.classList.contains("hidden")) {
+        closeChatInternal(false);
+        return true;
+    }
+
+    // 5. If viewing User Profile
+    if (viewingUserProfile) {
+        viewingUserProfile = null;
+        if (navStack.length > 1) {
+            navStack.pop();
+            const prev = navStack[navStack.length - 1] || "feed";
+            isNavBack = true;
+            showPage(prev, false);
+        } else {
+            showPage("feed", false);
+        }
+        return true;
+    }
+
+    // 6. Navigation Stack: One single step back through page history
+    if (navStack.length > 1) {
+        navStack.pop();
+        const prevPage = navStack[navStack.length - 1] || "feed";
+        isNavBack = true;
+        showPage(prevPage, false);
+        return true;
+    }
+
+    return false;
+}
+window.handleStepBack = handleStepBack;
+
 // Navigation System
 export function showPage(page, pushState = true) {
     if (page === "admin" && !isAdmin) return;
@@ -882,20 +977,7 @@ export function showPage(page, pushState = true) {
 window.showPage = showPage;
 
 window.addEventListener("popstate", e => {
-    const state = e.state;
-    if (!state || !state.stack || state.stack.length === 0) {
-        if (navStack.length > 1) { 
-          navStack.pop();
-          const last = navStack[navStack.length - 1] || "feed";
-          isNavBack = true;
-          showPage(last, false); 
-        }
-        return;
-    }
-    navStack = state.stack;
-    const page = state.page || navStack[navStack.length - 1] || "feed";
-    isNavBack = true;
-    showPage(page, false);
+    handleStepBack(false);
 });
 
 function setupNavigation() {
@@ -910,39 +992,12 @@ function setupNavigation() {
     document.querySelectorAll("#settings-mobile-btn, #profile-settings-btn").forEach(b => { 
       b?.addEventListener("click", () => showPage("settings")); 
     });
-    $("settings-back-btn")?.addEventListener("click", () => {
-        if (navStack.length > 1) { 
-          navStack.pop();
-          const prev = navStack[navStack.length - 1] || "profile";
-          isNavBack = true;
-          showPage(prev, false); 
-        } else showPage("profile");
-    });
+    $("settings-back-btn")?.addEventListener("click", () => handleStepBack());
     $("settings-logout-btn")?.addEventListener("click", logoutUser);
     $("logout-btn")?.addEventListener("click", logoutUser);
     $("settings-blocked")?.addEventListener("click", () => openBlockedModal());
-    $("notifications-back-btn")?.addEventListener("click", () => {
-        if (navStack.length > 1) { 
-          navStack.pop();
-          const prev = navStack[navStack.length - 1] || "feed";
-          isNavBack = true;
-          showPage(prev, false); 
-        } else { 
-          showPage("feed"); 
-        }
-    });
-    $("user-profile-back")?.addEventListener("click", () => {
-        if (navStack.length > 1) { 
-          navStack.pop();
-          const prev = navStack[navStack.length - 1] || "feed";
-          isNavBack = true;
-          viewingUserProfile = null;
-          showPage(prev, false); 
-        } else { 
-          viewingUserProfile = null;
-          showPage("feed"); 
-        }
-    });
+    $("notifications-back-btn")?.addEventListener("click", () => handleStepBack());
+    $("user-profile-back")?.addEventListener("click", () => handleStepBack());
     $("settings-teacher-register")?.addEventListener("click", () => {
         if (currentUserData?.role === "teacher") {
             showToast("You are already a teacher!", "info");
@@ -1755,7 +1810,7 @@ async function openChat(user) {
     }
     $("chat-header-profile").onclick = () => { closeActionsSheet(); openUserProfileFull(currentChatUser); };
     $("chat-actions-btn").onclick = openActionsSheet;
-    $("close-chat").onclick = () => closeChatInternal(true);
+    $("close-chat").onclick = () => handleStepBack();
     history.pushState({ page: "chats", chat: user.uid, stack: [...navStack] }, "", "#chats");
 }
 

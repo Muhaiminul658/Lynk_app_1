@@ -282,11 +282,15 @@
                 <div class="max-w-2xl mx-auto">
                     <div class="sticky top-0 bg-[var(--bg-primary)] z-10">
                         <div class="p-4 border-b border-[var(--border-color)] flex items-center justify-between">
-                            <h2 class="text-xl font-bold">Messages</h2>
-                            <button id="open-create-group-btn" class="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-blue-500/20 active:scale-95">
-                                <i class="fas fa-users"></i>
-                                <span>New Group</span>
-                            </button>
+                            <div class="flex items-center gap-1.5 cursor-pointer">
+                                <h2 id="messages-header-username" class="text-xl font-bold tracking-tight text-[var(--text-primary)]">Messages</h2>
+                                <i class="fas fa-chevron-down text-xs opacity-50 ml-0.5"></i>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="open-create-group-btn" class="w-9 h-9 rounded-full flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--bg-soft)] transition text-lg active:scale-90" title="New Message / Group" aria-label="New Message / Group">
+                                    <i class="far fa-pen-to-square text-base"></i>
+                                </button>
+                            </div>
                         </div>
                         <div id="chat-top-container" class="chat-top-scroll flex gap-4 overflow-x-auto p-3 border-b border-[var(--border-color)]"></div>
                     </div>
@@ -1480,39 +1484,30 @@
         </div>
     </div>
 
-    <!-- ===== CREATE GROUP CHAT MODAL ===== -->
+    <!-- ===== CREATE GROUP CHAT MODAL (Instagram Style) ===== -->
     <div id="create-group-modal" class="modal-overlay">
-        <div class="modal-box !max-w-md !p-0 overflow-hidden">
-            <div class="p-4 border-b border-[var(--border-color)] flex items-center justify-between">
-                <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
-                    <i class="fas fa-users-medical text-[#0095f6]"></i> Create New Group Chat
-                </h3>
-                <button class="text-gray-400 hover:text-white" id="close-create-group-modal"><i class="fas fa-times"></i></button>
+        <div class="modal-box !max-w-md !p-0 overflow-hidden !rounded-3xl shadow-2xl border border-[var(--border-color)]">
+            <div class="p-3.5 px-4 border-b border-[var(--border-color)] flex items-center justify-between">
+                <button class="text-xs font-semibold text-[var(--text-primary)] hover:opacity-70 transition p-1" id="close-create-group-modal">Cancel</button>
+                <h3 class="font-bold text-sm text-[var(--text-primary)]">New Group</h3>
+                <button id="submit-create-group-btn" form="create-group-form" type="submit" class="text-xs font-bold text-[#0095f6] hover:text-[#1877f2] transition p-1 disabled:opacity-40">Create</button>
             </div>
             
-            <form id="create-group-form" class="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+            <form id="create-group-form" class="p-4 space-y-3.5 max-h-[75vh] overflow-y-auto">
                 <div>
-                    <label class="text-xs font-semibold text-gray-400 mb-1 block">Group Name</label>
-                    <input id="group-name-input" required class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)] focus:border-[#0095f6]" placeholder="e.g. Study Group, Project Team, Friends" maxlength="40" />
+                    <label class="text-[11px] font-semibold text-gray-400 mb-1 block">Group Name</label>
+                    <input id="group-name-input" required class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)] focus:border-[#0095f6] transition placeholder:text-gray-500" placeholder="e.g. Squad, Study Group, Project…" maxlength="40" />
                 </div>
 
                 <div>
-                    <div class="flex items-center justify-between mb-1.5">
-                        <label class="text-xs font-semibold text-gray-400">Add Members</label>
-                        <span class="text-[10px] text-blue-400 font-medium">Select Friends</span>
+                    <label class="text-[11px] font-semibold text-gray-400 mb-1.5 block">Search Friends</label>
+                    <div class="relative mb-2.5">
+                        <span class="absolute left-3 top-2.5 text-xs text-gray-400 font-bold">To:</span>
+                        <input id="group-member-search" class="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)] focus:border-[#0095f6] transition placeholder:text-gray-500" placeholder="Search friends…" />
                     </div>
-                    <div class="relative mb-2">
-                        <i class="fas fa-search absolute left-3 top-2.5 text-gray-500 text-xs"></i>
-                        <input id="group-member-search" class="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="Search friends…" />
-                    </div>
-                    <div id="group-select-friends-list" class="space-y-2 max-h-52 overflow-y-auto pr-1">
+                    <div id="group-select-friends-list" class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                         <!-- Friend items rendered here -->
                     </div>
-                </div>
-
-                <div class="flex gap-2 pt-2 border-t border-[var(--border-color)]">
-                    <button type="button" id="cancel-create-group-btn" class="flex-1 py-2.5 rounded-xl bg-[var(--bg-soft)] text-xs text-gray-400 hover:text-white font-semibold">Cancel</button>
-                    <button type="submit" class="flex-1 py-2.5 rounded-xl bg-[#0095f6] hover:bg-[#1877f2] text-white text-xs font-bold transition shadow-lg shadow-blue-500/20">Create Group</button>
                 </div>
             </form>
         </div>
