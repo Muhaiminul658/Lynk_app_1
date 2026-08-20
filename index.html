@@ -277,12 +277,16 @@
                 <div id="videos-load-more" class="hidden"></div>
             </section>
 
-            <!-- 3. CHATS (Direct Messages) -->
+            <!-- 3. CHATS (Direct Messages & Groups) -->
             <section id="page-chats" class="content h-full overflow-y-auto">
                 <div class="max-w-2xl mx-auto">
                     <div class="sticky top-0 bg-[var(--bg-primary)] z-10">
                         <div class="p-4 border-b border-[var(--border-color)] flex items-center justify-between">
                             <h2 class="text-xl font-bold">Messages</h2>
+                            <button id="open-create-group-btn" class="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-blue-500/20 active:scale-95">
+                                <i class="fas fa-users"></i>
+                                <span>New Group</span>
+                            </button>
                         </div>
                         <div id="chat-top-container" class="chat-top-scroll flex gap-4 overflow-x-auto p-3 border-b border-[var(--border-color)]"></div>
                     </div>
@@ -806,6 +810,14 @@
                                 <p id="active-status" class="text-[11px] text-gray-400"></p>
                             </div>
                         </div>
+                    </div>
+                    <div class="flex items-center gap-1.5" id="chat-call-buttons-wrap">
+                        <button id="start-voice-call-btn" class="w-9 h-9 rounded-full bg-[var(--bg-soft)] hover:bg-green-600/20 text-gray-300 hover:text-green-400 flex items-center justify-center text-sm transition" title="Start Voice Call">
+                            <i class="fas fa-phone-alt"></i>
+                        </button>
+                        <button id="start-video-call-btn" class="w-9 h-9 rounded-full bg-[var(--bg-soft)] hover:bg-blue-600/20 text-gray-300 hover:text-blue-400 flex items-center justify-center text-sm transition" title="Start Video Call (SD)">
+                            <i class="fas fa-video"></i>
+                        </button>
                     </div>
                     <button id="chat-actions-btn" class="text-lg text-[var(--text-muted)] p-2 hover:bg-[var(--bg-soft)] rounded-full transition">
                         <i class="fas fa-ellipsis-v"></i>
@@ -1359,6 +1371,183 @@
             <span class="text-[9px] text-[#0095f6] font-semibold">@followers to notify all</span>
         </div>
         <div id="mention-suggestions-list" class="divide-y divide-[var(--border-color)]"></div>
+    </div>
+
+    <!-- ===== INCOMING CALL NOTIFICATION MODAL ===== -->
+    <div id="incoming-call-modal" class="fixed inset-0 z-[10005] bg-black/80 backdrop-blur-md hidden items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-[#1c1c1e] to-[#121212] border border-white/10 w-full max-w-sm rounded-3xl p-6 text-center shadow-2xl animate-bounce-short">
+            <div class="relative w-24 h-24 mx-auto mb-4">
+                <div class="absolute inset-0 rounded-full bg-[#0095f6]/30 animate-ping"></div>
+                <img id="incoming-caller-avatar" src="https://ui-avatars.com/api/?name=User" class="w-24 h-24 rounded-full object-cover border-4 border-[#0095f6] relative z-10 shadow-lg" alt="Caller" />
+            </div>
+            
+            <h3 id="incoming-caller-name" class="text-xl font-bold text-white mb-1">Incoming Call…</h3>
+            <div id="incoming-call-type-badge" class="inline-flex items-center px-3 py-1 rounded-full bg-white/10 text-xs font-semibold text-gray-300 mb-6">
+                <i class="fas fa-phone-alt text-green-400 mr-1.5"></i> Incoming Voice Call
+            </div>
+
+            <div class="flex items-center justify-center gap-8 pt-2">
+                <!-- Decline Button -->
+                <div class="flex flex-col items-center gap-1.5">
+                    <button id="incoming-call-decline" class="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-xl transition active:scale-90 shadow-lg shadow-red-600/30">
+                        <i class="fas fa-phone-slash"></i>
+                    </button>
+                    <span class="text-[11px] text-gray-400 font-medium">Decline</span>
+                </div>
+
+                <!-- Accept Button -->
+                <div class="flex flex-col items-center gap-1.5">
+                    <button id="incoming-call-accept" class="w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center text-xl transition active:scale-90 shadow-lg shadow-green-500/30 animate-pulse">
+                        <i class="fas fa-phone"></i>
+                    </button>
+                    <span class="text-[11px] text-gray-400 font-medium">Accept</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== AGORA VOICE & SD VIDEO ACTIVE CALL OVERLAY ===== -->
+    <div id="active-call-modal" class="fixed inset-0 z-[10000] bg-black hidden flex-col select-none">
+        
+        <!-- Top Bar with Call Info & Live Timer -->
+        <div class="absolute top-0 left-0 right-0 z-30 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <img id="call-other-avatar" src="https://ui-avatars.com/api/?name=User" class="w-10 h-10 rounded-full object-cover border border-white/20" alt="Participant" />
+                <div>
+                    <h4 id="call-other-name" class="text-sm font-bold text-white leading-tight">Participant</h4>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span id="call-status-badge" class="text-[11px] text-blue-400 font-medium">SD Video Call</span>
+                        <span class="text-gray-500 text-xs">•</span>
+                        <span id="call-timer-display" class="text-xs text-gray-300 font-mono font-bold">00:00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="px-2.5 py-1 rounded-full bg-black/40 border border-white/10 text-[10px] text-green-400 flex items-center gap-1.5 backdrop-blur-md">
+                <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                <span>Agora RTC SD</span>
+            </div>
+        </div>
+
+        <!-- Main Video Container (Remote Participant) -->
+        <div class="relative flex-1 w-full h-full bg-[#0a0a0c] flex items-center justify-center overflow-hidden">
+            
+            <!-- Remote Agora Video Player -->
+            <div id="remote-video-player" class="w-full h-full object-cover"></div>
+
+            <!-- Avatar Placeholder (For voice call or when remote camera is off) -->
+            <div id="remote-user-avatar-placeholder" class="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#18181b] to-black">
+                <div class="relative mb-4">
+                    <div class="w-28 h-28 rounded-full bg-gradient-to-tr from-blue-600/30 to-purple-600/30 flex items-center justify-center animate-pulse">
+                        <img id="remote-user-avatar-img" src="https://ui-avatars.com/api/?name=User" class="w-24 h-24 rounded-full object-cover border-2 border-white/20 shadow-2xl" alt="Participant" />
+                    </div>
+                </div>
+                <h3 id="remote-user-name-text" class="text-lg font-bold text-white mb-1">User</h3>
+                <p class="text-xs text-gray-400 font-medium">Lynk High-Definition Voice Engine</p>
+            </div>
+
+            <!-- Local Video Preview (Picture-in-Picture) -->
+            <div id="local-video-pip" class="absolute bottom-24 right-4 w-28 h-40 md:w-36 md:h-48 rounded-2xl overflow-hidden bg-black/80 border-2 border-white/20 shadow-2xl z-20 transition-all duration-200">
+                <div id="local-video-player" class="w-full h-full object-cover"></div>
+                <div class="absolute bottom-1.5 left-2 bg-black/60 px-1.5 py-0.5 rounded text-[9px] text-white/80 font-medium">You</div>
+            </div>
+        </div>
+
+        <!-- Floating Call Controls Bar -->
+        <div class="absolute bottom-6 left-0 right-0 z-30 flex items-center justify-center gap-4 px-4">
+            <div class="bg-black/60 backdrop-blur-xl border border-white/15 px-6 py-3.5 rounded-full flex items-center gap-5 shadow-2xl">
+                
+                <!-- Toggle Microphone -->
+                <button id="call-control-mic" class="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-lg transition active:scale-90" title="Mute/Unmute Mic">
+                    <i class="fas fa-microphone"></i>
+                </button>
+
+                <!-- Toggle Camera -->
+                <button id="call-control-cam" class="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-lg transition active:scale-90" title="Camera On/Off">
+                    <i class="fas fa-video"></i>
+                </button>
+
+                <!-- Switch Camera (Front / Back) -->
+                <button id="call-control-switch" class="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-lg transition active:scale-90" title="Switch Camera">
+                    <i class="fas fa-camera-rotate"></i>
+                </button>
+
+                <!-- End Call Button -->
+                <button id="call-control-end" class="w-14 h-12 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-xl transition active:scale-90 shadow-lg shadow-red-600/40" title="End Call">
+                    <i class="fas fa-phone-slash"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== CREATE GROUP CHAT MODAL ===== -->
+    <div id="create-group-modal" class="modal-overlay">
+        <div class="modal-box !max-w-md !p-0 overflow-hidden">
+            <div class="p-4 border-b border-[var(--border-color)] flex items-center justify-between">
+                <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <i class="fas fa-users-medical text-[#0095f6]"></i> Create New Group Chat
+                </h3>
+                <button class="text-gray-400 hover:text-white" id="close-create-group-modal"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <form id="create-group-form" class="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+                <div>
+                    <label class="text-xs font-semibold text-gray-400 mb-1 block">Group Name</label>
+                    <input id="group-name-input" required class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)] focus:border-[#0095f6]" placeholder="e.g. Study Group, Project Team, Friends" maxlength="40" />
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="text-xs font-semibold text-gray-400">Add Members</label>
+                        <span class="text-[10px] text-blue-400 font-medium">Select Friends</span>
+                    </div>
+                    <div class="relative mb-2">
+                        <i class="fas fa-search absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+                        <input id="group-member-search" class="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="Search friends…" />
+                    </div>
+                    <div id="group-select-friends-list" class="space-y-2 max-h-52 overflow-y-auto pr-1">
+                        <!-- Friend items rendered here -->
+                    </div>
+                </div>
+
+                <div class="flex gap-2 pt-2 border-t border-[var(--border-color)]">
+                    <button type="button" id="cancel-create-group-btn" class="flex-1 py-2.5 rounded-xl bg-[var(--bg-soft)] text-xs text-gray-400 hover:text-white font-semibold">Cancel</button>
+                    <button type="submit" class="flex-1 py-2.5 rounded-xl bg-[#0095f6] hover:bg-[#1877f2] text-white text-xs font-bold transition shadow-lg shadow-blue-500/20">Create Group</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== GROUP INFO & MEMBERS MODAL ===== -->
+    <div id="group-info-modal" class="modal-overlay">
+        <div class="modal-box !max-w-md !p-0 overflow-hidden">
+            <div class="p-4 border-b border-[var(--border-color)] flex items-center justify-between">
+                <h3 class="font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                    <i class="fas fa-info-circle text-[#0095f6]"></i> Group Details
+                </h3>
+                <button class="text-gray-400 hover:text-white" id="close-group-info-modal"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+                <div class="text-center pb-2 border-b border-[var(--border-color)]">
+                    <img id="group-info-avatar" src="" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 border-2 border-blue-500/40" />
+                    <h4 id="group-info-name" class="font-bold text-base text-[var(--text-primary)]"></h4>
+                    <p id="group-info-member-count" class="text-xs text-gray-400 mt-0.5">0 members</p>
+                </div>
+
+                <div>
+                    <h5 class="text-xs font-semibold text-gray-400 mb-2">Members</h5>
+                    <div id="group-info-members-list" class="space-y-2 max-h-48 overflow-y-auto">
+                        <!-- Members list -->
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button id="leave-group-btn" class="w-full py-2.5 rounded-xl bg-red-950/30 border border-red-900/40 text-red-400 hover:bg-red-900/40 text-xs font-bold transition flex items-center justify-center gap-2">
+                        <i class="fas fa-sign-out-alt"></i> Leave Group
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Load main script as ES module -->

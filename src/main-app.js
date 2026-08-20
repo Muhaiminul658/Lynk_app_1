@@ -26,6 +26,21 @@ import {
   serverTimestamp 
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
+// Import Agora Call Manager & Group Chat Manager
+import { 
+  initAgoraCallManager, 
+  startIncomingCallListener, 
+  startCall 
+} from "./agora-call-manager.js";
+
+import { 
+  initGroupChatManager, 
+  openCreateGroupModal, 
+  openGroupChat, 
+  sendGroupMessage, 
+  openGroupInfoModal 
+} from "./group-chat-manager.js";
+
 const CLOUDINARY_CLOUD = "vnnsmgyy",
       CLOUDINARY_PRESET = "profile pic",
       ADMIN_EMAIL = "admin@gmail.com",
@@ -66,6 +81,17 @@ function showToast(msg, type = "info") {
     setTimeout(() => { t.classList.add("opacity-100", "pointer-events-auto"); t.style.transform = "translateY(0)"; }, 10);
     setTimeout(() => { t.classList.remove("opacity-100", "pointer-events-auto"); t.style.transform = "translateY(-10px)"; }, 3000);
 }
+
+// Global helpers for sub-managers
+window.showToast = showToast;
+window.showLoader = (txt) => showLoader(txt);
+window.hideLoader = () => hideLoader();
+window.playPutungSound = (type) => playPutungSound(type);
+window.showPage = (p, push) => showPage(p, push);
+window.openUserProfileByUid = async (uid) => {
+    const u = await getUserByUID(uid);
+    if (u) openUserProfileFull(u);
+};
 
 function showLoader(text = "Loading…") { 
   const t = $("loader-text"); 
@@ -728,6 +754,21 @@ onAuthStateChanged(auth, async user => {
             const composerAvatar = $("composer-user-avatar");
             if (composerAvatar) composerAvatar.src = currentUserData.photoURL || DEFAULT_AVATAR;
         }
+
+        // Initialize Agora Voice & SD Video Call Manager
+        initAgoraCallManager({
+            db, ref, set, get, update, onValue, remove, push, serverTimestamp,
+            getCurrentUser: () => currentUser,
+            getCurrentUserData: () => currentUserData
+        });
+        startIncomingCallListener(user.uid);
+
+        // Initialize Group Chat Manager
+        initGroupChatManager({
+            db, ref, set, get, update, onValue, remove, push, serverTimestamp,
+            getCurrentUser: () => currentUser,
+            getCurrentUserData: () => currentUserData
+        });
 
         // Initialize Push Notifications (Capacitor Native + Pusher Beams)
         if (window.initCapacitorPush) {
@@ -1641,6 +1682,7 @@ async function openChat(user) {
     if (!freshUser) { showToast("User not found.", "error"); return; }
     user = freshUser;
     currentChatUser = user;
+    window.currentActiveGroup = null; // Clear active group chat when opening 1-on-1
     currentChatId = [currentUser.uid, user.uid].sort().join("_");
     await loadChatTheme();
     const chatEl = $("active-chat");
@@ -1654,6 +1696,28 @@ async function openChat(user) {
     loadChatMessages();
     startTypingListener();
     startChatPresenceListener();
+
+    // Setup Call Buttons (Voice & Video)
+    const callBtnsWrap = $("chat-call-buttons-wrap");
+    if (callBtnsWrap) callBtnsWrap.classList.remove("hidden");
+    const voiceCallBtn = $("start-voice-call-btn");
+    if (voiceCallBtn) {
+        voiceCallBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (currentChatUser) {
+                startCall({ targetUser: currentChatUser, type: "voice" });
+            }
+        };
+    }
+    const videoCallBtn = $("start-video-call-btn");
+    if (videoCallBtn) {
+        videoCallBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (currentChatUser) {
+                startCall({ targetUser: currentChatUser, type: "video" });
+            }
+        };
+    }
     
     const attachBtn = $("chat-attach-btn"), imageInput = $("chat-image-input");
     if (attachBtn && imageInput) {
@@ -1715,6 +1779,7 @@ function closeChatInternal(pushBack = true) {
     if (chatEl) { chatEl.classList.add("hidden"); chatEl.classList.remove("flex"); }
     currentChatUser = null;
     currentChatId = null;
+    window.currentActiveGroup = null;
     if (pushBack) {
         if (navStack.length > 1) { 
           navStack.pop();
@@ -1824,11 +1889,19 @@ function renderChatMessages(messages) {
 
 $("chat-form")?.addEventListener("submit", async e => {
     e.preventDefault();
-    if (!currentUser || !currentChatUser || !currentChatId) return;
     const input = $("chat-input");
     if (!input) return;
     const text = input.value.trim();
     if (!text) return;
+
+    // Handle Group Chat Message Submission
+    if (window.currentActiveGroup) {
+        input.value = "";
+        await sendGroupMessage(text);
+        return;
+    }
+
+    if (!currentUser || !currentChatUser || !currentChatId) return;
     try {
         const mr = push(ref(db, `messages/${currentChatId}`));
         await set(mr, { 
@@ -1869,16 +1942,52 @@ function loadChatList() {
         const container = $("chat-list");
         if (!container) return;
         container.innerHTML = "";
-        const filtered = chats.filter(c => !isBlocked(c.uid));
-        if (!filtered.length) { 
-          container.innerHTML = `<div class="text-center text-gray-500 py-10 px-4 text-xs">No conversations yet.</div>`; 
+        
+        if (!chats.length) { 
+          container.innerHTML = `<div class="text-center text-gray-500 py-10 px-4 text-xs">No conversations yet. Start a chat or create a group!</div>`; 
           return; 
         }
-        for (const chat of filtered) {
+
+        for (const chat of chats) {
+            // Group Chat Item
+            if (chat.isGroup || chat.groupId) {
+                const item = document.createElement("div");
+                item.className = "p-3.5 flex items-center gap-3 cursor-pointer hover:bg-[var(--bg-soft)] transition border-b border-[var(--border-color)]/30";
+                const groupAvatar = chat.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(chat.name || 'Group')}&background=0095f6&color=ffffff`;
+                item.innerHTML = `
+                    <div class="relative w-10 h-10 flex-shrink-0">
+                        <img src="${groupAvatar}" class="w-10 h-10 rounded-full object-cover border border-[var(--border-color)]">
+                        <span class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[8px] font-bold border border-[var(--bg-primary)]">
+                            <i class="fas fa-users"></i>
+                        </span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <div class="font-semibold text-xs truncate flex items-center gap-1.5 text-[var(--text-primary)]">
+                                <span>${escapeHTML(chat.name || "Group")}</span>
+                                <span class="text-[9px] px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-400 font-bold">Group</span>
+                            </div>
+                        </div>
+                        <div class="text-[11px] text-gray-400 truncate mt-0.5">${escapeHTML(chat.lastMessage || "No messages yet")}</div>
+                    </div>`;
+                item.onclick = async () => {
+                    const gSnap = await get(ref(db, `groups/${chat.groupId}`));
+                    if (gSnap.exists()) {
+                        openGroupChat({ groupId: chat.groupId, ...gSnap.val() });
+                    } else {
+                        openGroupChat({ groupId: chat.groupId, name: chat.name, avatar: chat.avatar });
+                    }
+                };
+                container.appendChild(item);
+                continue;
+            }
+
+            // 1-on-1 User Chat Item
+            if (isBlocked(chat.uid)) continue;
             const user = await getUserByUID(chat.uid);
             if (!user || isBlocked(user.uid)) continue;
             const item = document.createElement("div");
-            item.className = "p-3.5 flex items-center gap-3 cursor-pointer hover:bg-[var(--bg-soft)] transition";
+            item.className = "p-3.5 flex items-center gap-3 cursor-pointer hover:bg-[var(--bg-soft)] transition border-b border-[var(--border-color)]/30";
             item.innerHTML = `
                 <div class="avatar-wrap"><img src="${user.photoURL || DEFAULT_AVATAR}" class="avatar-img">${user.online ? `<span class="online-dot"></span>` : ""}</div>
                 <div class="flex-1 min-w-0">
