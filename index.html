@@ -441,6 +441,30 @@
                                 <span id="profile-role-badge" class="text-xs px-3 py-1 rounded-full bg-blue-600/20 text-blue-400 border border-blue-600/30 hidden"></span>
                             </div>
 
+                            <!-- Teacher Website Hub Banner for Verified / Teacher Users -->
+                            <div id="profile-teacher-web-card" class="mt-4 p-4 rounded-2xl bg-gradient-to-r from-indigo-950/80 via-purple-950/60 to-blue-950/80 border border-indigo-500/40 hidden flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 border border-indigo-400/40 flex items-center justify-center text-white text-lg flex-shrink-0 shadow-md">
+                                        <i class="fas fa-globe"></i>
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <h4 class="font-bold text-xs sm:text-sm text-white">Teacher Website Studio</h4>
+                                            <span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30">WordPress Pro</span>
+                                        </div>
+                                        <p class="text-[11px] text-gray-300 mt-0.5 font-mono" id="profile-teacher-domain-preview">teacher.edu/your-handle</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button id="profile-open-builder-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md">
+                                        <i class="fas fa-paint-brush"></i> Website Builder
+                                    </button>
+                                    <button id="profile-view-my-web-btn" class="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1">
+                                        <i class="fas fa-external-link-alt"></i> Live Site
+                                    </button>
+                                </div>
+                            </div>
+
                             <div class="flex gap-8 mt-5 pt-4 border-t border-[var(--border-color)] text-xs">
                                 <span><strong id="profile-post-count" class="text-sm font-bold text-white">0</strong> posts</span>
                                 <span><strong id="profile-follower-count" class="text-sm font-bold text-white">0</strong> followers</span>
@@ -647,93 +671,502 @@
                         <h3 class="font-bold text-sm mb-3 flex items-center gap-2"><i class="fas fa-users text-green-400"></i> Student Purchases</h3>
                         <div id="teacher-buyers-list" class="space-y-2"></div>
                     </div>
+             <!-- 14. TEACHER BUILDER (WordPress-Like Website Studio) -->
+            <section id="page-teacher-builder" class="content h-full overflow-y-auto p-3 sm:p-6 md:p-8">
+                <div class="max-w-4xl mx-auto pb-28">
+                    <!-- Top Navigation Bar -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sticky top-0 bg-[var(--bg-primary)]/90 backdrop-blur-md py-2 z-20 border-b border-[var(--border-color)]">
+                        <div class="flex items-center gap-3">
+                            <button id="builder-back" class="w-9 h-9 rounded-full bg-[var(--bg-soft)] text-[var(--text-muted)] hover:text-white flex items-center justify-center text-sm transition"><i class="fas fa-arrow-left"></i></button>
+                            <div>
+                                <h2 class="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                                    <span class="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">Teacher Web Studio</span>
+                                    <span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30">WordPress Mode</span>
+                                </h2>
+                                <p class="text-[11px] text-gray-400 font-mono flex items-center gap-1.5 mt-0.5">
+                                    <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                                    <span id="builder-handle-preview">teacher.edu/—</span>
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button id="builder-preview-toggle-btn" class="bg-[var(--bg-soft)] hover:bg-[var(--border-color)] text-gray-200 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition">
+                                <i class="fas fa-eye text-indigo-400"></i> <span>Live Preview</span>
+                            </button>
+                            <button id="builder-view-live-btn" class="bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition">
+                                <i class="fas fa-external-link-alt"></i> <span>View Portal</span>
+                            </button>
+                            <button id="builder-publish" class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:opacity-95 text-white px-4 py-2 rounded-xl font-black text-xs shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition">
+                                <i class="fas fa-rocket"></i> <span>Publish</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Builder Tabs Navigation -->
+                    <div class="flex gap-2 overflow-x-auto pb-2 mb-6 border-b border-[var(--border-color)] no-scrollbar text-xs font-bold">
+                        <button class="builder-nav-tab active px-3.5 py-2 rounded-xl bg-indigo-600 text-white transition flex items-center gap-1.5 flex-shrink-0" data-tab="brand">
+                            <i class="fas fa-palette"></i> <span>1. Brand & Themes</span>
+                        </button>
+                        <button class="builder-nav-tab px-3.5 py-2 rounded-xl bg-[var(--bg-soft)] text-gray-400 hover:text-white transition flex items-center gap-1.5 flex-shrink-0" data-tab="links">
+                            <i class="fas fa-link"></i> <span>2. Third-Party Links</span>
+                        </button>
+                        <button class="builder-nav-tab px-3.5 py-2 rounded-xl bg-[var(--bg-soft)] text-gray-400 hover:text-white transition flex items-center gap-1.5 flex-shrink-0" data-tab="articles">
+                            <i class="fas fa-newspaper"></i> <span>3. Articles & Notes</span>
+                        </button>
+                        <button class="builder-nav-tab px-3.5 py-2 rounded-xl bg-[var(--bg-soft)] text-gray-400 hover:text-white transition flex items-center gap-1.5 flex-shrink-0" data-tab="blocks">
+                            <i class="fas fa-cubes"></i> <span>4. Content Blocks</span>
+                        </button>
+                        <button class="builder-nav-tab px-3.5 py-2 rounded-xl bg-[var(--bg-soft)] text-gray-400 hover:text-white transition flex items-center gap-1.5 flex-shrink-0" data-tab="contact">
+                            <i class="fas fa-headset"></i> <span>5. WhatsApp & Contact</span>
+                        </button>
+                        <button class="builder-nav-tab px-3.5 py-2 rounded-xl bg-[var(--bg-soft)] text-gray-400 hover:text-white transition flex items-center gap-1.5 flex-shrink-0" data-tab="preview">
+                            <i class="fas fa-desktop"></i> <span>6. Live Preview</span>
+                        </button>
+                    </div>
+
+                    <!-- TAB 1: Brand, Domain & Themes -->
+                    <div id="builder-tab-content-brand" class="builder-tab-panel space-y-5">
+                        <!-- Domain Handle Box -->
+                        <div class="dark-card p-5 border border-indigo-500/30 rounded-2xl bg-gradient-to-br from-[var(--bg-card)] to-[var(--bg-soft)]">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="font-bold text-sm text-white flex items-center gap-2">
+                                    <i class="fas fa-globe text-indigo-400"></i> Your Custom .edu Subdomain
+                                </h3>
+                                <span class="px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-[10px] font-bold font-mono">SSL Active</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <div class="flex-1 flex items-center px-3 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)]">
+                                    <span class="text-gray-400 text-xs font-mono select-none">teacher.edu/</span>
+                                    <input id="builder-handle" class="flex-1 bg-transparent outline-none text-xs text-[var(--text-primary)] font-mono font-bold ml-1" placeholder="yourname" maxlength="30" />
+                                </div>
+                                <button id="builder-save-handle" class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-xl font-bold text-xs transition flex items-center gap-1">
+                                    <i class="fas fa-check"></i> Save Domain
+                                </button>
+                            </div>
+                            <p class="text-[11px] text-gray-400 mt-2">Anyone can visit your educational portal globally via <span class="text-indigo-300 font-mono font-semibold" id="builder-handle-live-link">teacher.edu/—</span></p>
+                        </div>
+
+                        <!-- Brand & Header -->
+                        <div class="dark-card p-5 rounded-2xl space-y-4">
+                            <h3 class="font-bold text-sm text-white flex items-center gap-2"><i class="fas fa-heading text-purple-400"></i> Portal Identity & Header</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">Site Title / Academy Name</label>
+                                    <input id="builder-title" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="e.g. Mahin's Physics Hub" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">Subject / Designation Badge</label>
+                                    <input id="builder-badge" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="e.g. Senior Physics Faculty · BUET" />
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-300 mb-1">About Me / Bio / Vision</label>
+                                <textarea id="builder-bio" rows="3" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)] resize-none" placeholder="Write an inspiring bio for your students…"></textarea>
+                            </div>
+                            <!-- Hero CTA Button -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)]">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">Hero Action Button Text</label>
+                                    <input id="builder-cta-text" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] outline-none text-xs" placeholder="e.g. Enroll in Batch 2026 / Join Free Demo" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">Action Button Link (URL / WhatsApp / Third-Party)</label>
+                                    <input id="builder-cta-url" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] outline-none text-xs font-mono" placeholder="https://..." />
+                                </div>
+                            </div>
+                            <!-- Banner Image -->
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-300 mb-1">Hero Banner Cover Image</label>
+                                <div class="border-2 border-dashed border-[var(--border-color)] rounded-xl p-4 text-center cursor-pointer hover:border-indigo-500 transition" id="builder-banner-drop">
+                                    <i class="fas fa-cloud-upload-alt text-2xl text-indigo-400 mb-1"></i>
+                                    <p class="text-xs font-semibold text-gray-300">Click or drag banner cover photo</p>
+                                    <p class="text-[10px] text-gray-500">Supports JPG, PNG, WebP (High Resolution)</p>
+                                </div>
+                                <input type="file" id="builder-banner-file" accept="image/*" class="hidden" />
+                                <div class="relative mt-2 hidden" id="builder-banner-preview-wrap">
+                                    <img id="builder-banner-preview" class="w-full h-32 object-cover rounded-xl border border-[var(--border-color)]" />
+                                    <button id="builder-banner-remove-btn" class="absolute top-2 right-2 bg-red-600 text-white w-7 h-7 rounded-full text-xs flex items-center justify-center shadow"><i class="fas fa-trash"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Theme Engine -->
+                        <div class="dark-card p-5 rounded-2xl space-y-4">
+                            <h3 class="font-bold text-sm text-white flex items-center gap-2"><i class="fas fa-brush text-pink-400"></i> WordPress Themes & Aesthetics</h3>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3" id="builder-theme-options">
+                                <button class="builder-theme-btn p-3 rounded-xl border-2 border-indigo-500 bg-indigo-600/20 text-left transition flex flex-col justify-between h-24" data-theme="dark">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-black text-white">Modern Luxury</span>
+                                        <span class="w-3 h-3 rounded-full bg-purple-500"></span>
+                                    </div>
+                                    <div class="text-[10px] text-gray-300">Onyx Dark & Violet Accents</div>
+                                </button>
+                                <button class="builder-theme-btn p-3 rounded-xl border-2 border-[var(--border-color)] bg-[var(--bg-soft)] text-left hover:border-blue-500 transition flex flex-col justify-between h-24" data-theme="academic">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-black text-white">Oxford Navy</span>
+                                        <span class="w-3 h-3 rounded-full bg-blue-500"></span>
+                                    </div>
+                                    <div class="text-[10px] text-gray-300">Classic Academic & Royal Blue</div>
+                                </button>
+                                <button class="builder-theme-btn p-3 rounded-xl border-2 border-[var(--border-color)] bg-[var(--bg-soft)] text-left hover:border-emerald-500 transition flex flex-col justify-between h-24" data-theme="emerald">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-black text-white">Cambridge Mint</span>
+                                        <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                                    </div>
+                                    <div class="text-[10px] text-gray-300">Fresh Emerald & Campus Green</div>
+                                </button>
+                                <button class="builder-theme-btn p-3 rounded-xl border-2 border-[var(--border-color)] bg-[var(--bg-soft)] text-left hover:border-cyan-500 transition flex flex-col justify-between h-24" data-theme="tech">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-black text-white">Silicon Cyber</span>
+                                        <span class="w-3 h-3 rounded-full bg-cyan-400"></span>
+                                    </div>
+                                    <div class="text-[10px] text-gray-300">Futuristic Indigo & Cyan Code</div>
+                                </button>
+                                <button class="builder-theme-btn p-3 rounded-xl border-2 border-[var(--border-color)] bg-[var(--bg-soft)] text-left hover:border-rose-500 transition flex flex-col justify-between h-24" data-theme="crimson">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-black text-white">Crimson Scholar</span>
+                                        <span class="w-3 h-3 rounded-full bg-rose-500"></span>
+                                    </div>
+                                    <div class="text-[10px] text-gray-300">Deep Ruby Rose & Amber Gold</div>
+                                </button>
+                                <button class="builder-theme-btn p-3 rounded-xl border-2 border-[var(--border-color)] bg-[var(--bg-soft)] text-left hover:border-gray-400 transition flex flex-col justify-between h-24" data-theme="light">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-black text-white">Clean Minimalist</span>
+                                        <span class="w-3 h-3 rounded-full bg-slate-200"></span>
+                                    </div>
+                                    <div class="text-[10px] text-gray-300">Pure Contrast & Paper White</div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 2: Third-Party Links & Navigation Menu (WordPress Menu Style) -->
+                    <div id="builder-tab-content-links" class="builder-tab-panel space-y-5 hidden">
+                        <div class="dark-card p-5 rounded-2xl">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-external-link-alt text-blue-400"></i> Third-Party Links & Navigation Menu
+                                    </h3>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Add direct links to your Google Drive notes, Zoom/Meet classes, Notion wikis, portfolio, research papers, etc.</p>
+                                </div>
+                                <button id="builder-add-custom-link-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 flex-shrink-0 shadow">
+                                    <i class="fas fa-plus"></i> Add Custom Link
+                                </button>
+                            </div>
+
+                            <div id="builder-custom-links-list" class="space-y-2.5">
+                                <!-- Dynamic custom links rendered here -->
+                            </div>
+                        </div>
+
+                        <!-- Social Profiles Block -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <h3 class="font-bold text-sm text-white flex items-center gap-2"><i class="fas fa-share-alt text-purple-400"></i> Official Social Channels</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-300 mb-1"><i class="fab fa-facebook text-blue-400 mr-1"></i> Facebook Page/Group</label>
+                                    <input id="builder-fb" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="https://facebook.com/..." />
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-300 mb-1"><i class="fab fa-youtube text-red-400 mr-1"></i> YouTube Channel</label>
+                                    <input id="builder-yt" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="https://youtube.com/@..." />
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-300 mb-1"><i class="fab fa-instagram text-pink-400 mr-1"></i> Instagram Profile</label>
+                                    <input id="builder-ig" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="https://instagram.com/..." />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 3: Articles & Educational Blog Studio (WordPress Post Engine) -->
+                    <div id="builder-tab-content-articles" class="builder-tab-panel space-y-5 hidden">
+                        <div class="dark-card p-5 rounded-2xl">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-newspaper text-emerald-400"></i> WordPress Blog & Educational Notes Studio
+                                    </h3>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Publish articles, lecture notes, exam preparation suggestions, and study formulas on your portal.</p>
+                                </div>
+                                <button id="builder-add-article-btn" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 flex-shrink-0 shadow">
+                                    <i class="fas fa-plus"></i> Write New Article
+                                </button>
+                            </div>
+
+                            <div id="builder-articles-list" class="space-y-3">
+                                <!-- Dynamic articles rendered here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 4: Content Blocks & Rich Widgets -->
+                    <div id="builder-tab-content-blocks" class="builder-tab-panel space-y-5 hidden">
+                        <!-- 1. Notice Board / Announcement -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-bullhorn text-amber-400"></i> Notice Board & Urgent Announcement
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Displays a prominent banner at the top of your site.</p>
+                                </div>
+                                <div class="toggle-switch active" id="block-announcement"><div class="knob"></div></div>
+                            </div>
+                            <div id="builder-announcement-wrap" class="space-y-2">
+                                <textarea id="builder-announcement" rows="2" class="w-full px-3.5 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="e.g. Admission for HSC 2026 Batch is now open! Limited seats available."></textarea>
+                            </div>
+                        </div>
+
+                        <!-- 2. Featured Courses Block -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-graduation-cap text-indigo-400"></i> Masterclasses & Course Catalog
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Showcase your courses and allow students to enroll instantly.</p>
+                                </div>
+                                <div class="toggle-switch active" id="block-courses"><div class="knob"></div></div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Featured Video Lectures Block -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-play-circle text-red-400"></i> Featured Video Masterclasses (YouTube Embeds)
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Embed demo lectures or topic walkthroughs.</p>
+                                </div>
+                                <div class="toggle-switch active" id="block-videos"><div class="knob"></div></div>
+                            </div>
+                            <div id="builder-videos-fields" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-300 mb-1">Featured Video 1 (YouTube URL)</label>
+                                    <input id="builder-video1" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="https://www.youtube.com/watch?v=..." />
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-300 mb-1">Featured Video 2 (YouTube URL)</label>
+                                    <input id="builder-video2" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="https://www.youtube.com/watch?v=..." />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. Stats & Achievements Block -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-trophy text-amber-400"></i> Teacher Stats & Track Record
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Build trust with impressive metrics.</p>
+                                </div>
+                                <div class="toggle-switch active" id="block-stats"><div class="knob"></div></div>
+                            </div>
+                            <div id="builder-stats-fields" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                <div class="p-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)]">
+                                    <label class="block text-[10px] text-gray-400">Stat 1 (e.g. Students)</label>
+                                    <input id="builder-stat1" class="w-full bg-transparent font-bold text-xs text-white outline-none mt-1" placeholder="10,000+" value="5,000+" />
+                                </div>
+                                <div class="p-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)]">
+                                    <label class="block text-[10px] text-gray-400">Stat 2 (e.g. Experience)</label>
+                                    <input id="builder-stat2" class="w-full bg-transparent font-bold text-xs text-white outline-none mt-1" placeholder="8+ Years" value="6+ Yrs Exp" />
+                                </div>
+                                <div class="p-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)]">
+                                    <label class="block text-[10px] text-gray-400">Stat 3 (e.g. Rating)</label>
+                                    <input id="builder-stat3" class="w-full bg-transparent font-bold text-xs text-white outline-none mt-1" placeholder="4.9 / 5.0" value="4.9 ★★★★★" />
+                                </div>
+                                <div class="p-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)]">
+                                    <label class="block text-[10px] text-gray-400">Stat 4 (e.g. Success Rate)</label>
+                                    <input id="builder-stat4" class="w-full bg-transparent font-bold text-xs text-white outline-none mt-1" placeholder="98% A+" value="98% A+ Rate" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5. Student Testimonials Block -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-comments text-pink-400"></i> Student Testimonials & Success Stories
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Show feedback from your top students.</p>
+                                </div>
+                                <div class="toggle-switch active" id="block-testimonials"><div class="knob"></div></div>
+                            </div>
+                            <div id="builder-testimonials-wrap" class="space-y-3">
+                                <div class="p-3 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                    <input id="builder-testi-name1" class="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-xs text-white" placeholder="Student Name (e.g. Tanvir - BUET'24)" />
+                                    <input id="builder-testi-text1" class="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-xs text-white" placeholder="Student Review Quote" />
+                                </div>
+                                <div class="p-3 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                    <input id="builder-testi-name2" class="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-xs text-white" placeholder="Student Name (e.g. Sumaiya - DMC'24)" />
+                                    <input id="builder-testi-text2" class="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-xs text-white" placeholder="Student Review Quote" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 6. FAQ Accordion Block -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-question-circle text-cyan-400"></i> Frequently Asked Questions (FAQ)
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Answer common questions about batch timings, fees, notes, and exams.</p>
+                                </div>
+                                <div class="toggle-switch active" id="block-faq"><div class="knob"></div></div>
+                            </div>
+                            <div id="builder-faq-fields" class="space-y-3">
+                                <div class="p-3 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] space-y-2">
+                                    <input id="builder-faq-q1" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] outline-none text-xs font-semibold" placeholder="Question 1 (e.g. How can I join live classes?)" />
+                                    <input id="builder-faq-a1" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] outline-none text-xs" placeholder="Answer 1 (e.g. After purchasing, you will get instant access to live sessions & class recordings.)" />
+                                </div>
+                                <div class="p-3 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] space-y-2">
+                                    <input id="builder-faq-q2" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] outline-none text-xs font-semibold" placeholder="Question 2 (e.g. Are lecture sheet PDFs provided?)" />
+                                    <input id="builder-faq-a2" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] outline-none text-xs" placeholder="Answer 2 (e.g. Yes! Premium handwritten PDF lecture notes are included with every course.)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 7. Custom Third-Party Widget Embed Block -->
+                        <div class="dark-card p-5 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
+                                        <i class="fas fa-code text-teal-400"></i> Third-Party Embeds & Custom Widgets
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Embed Google Forms, Google Maps location, Spotify playlist, Typeform, or custom iframe widget.</p>
+                                </div>
+                                <div class="toggle-switch" id="block-widget"><div class="knob"></div></div>
+                            </div>
+                            <div id="builder-widget-wrap" class="hidden space-y-2">
+                                <label class="block text-[11px] font-semibold text-gray-300">Widget Title / Header</label>
+                                <input id="builder-widget-title" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="e.g. Batch Registration Form / Coaching Location" />
+                                <label class="block text-[11px] font-semibold text-gray-300 mt-2">Embed URL or iFrame Source</label>
+                                <input id="builder-widget-url" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs font-mono" placeholder="https://docs.google.com/forms/... or https://maps.google.com/..." />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 5: WhatsApp Direct Connect & Contact Desk -->
+                    <div id="builder-tab-content-contact" class="builder-tab-panel space-y-5 hidden">
+                        <div class="dark-card p-5 rounded-2xl space-y-4">
+                            <h3 class="font-bold text-sm text-white flex items-center gap-2">
+                                <i class="fab fa-whatsapp text-green-400 text-lg"></i> Instant WhatsApp Connect Desk
+                            </h3>
+                            <p class="text-[11px] text-gray-400">Add your WhatsApp number so students can click one button on your website to chat directly with you or your admission office.</p>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">WhatsApp Number (with country code)</label>
+                                    <input id="builder-whatsapp" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs font-mono" placeholder="+8801700000000" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">Telegram Handle / Channel Link</label>
+                                    <input id="builder-telegram" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="https://t.me/..." />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">Official Email Address</label>
+                                    <input id="builder-email" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="contact@teacher.edu" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-300 mb-1">Coaching Center / Chamber Location</label>
+                                    <input id="builder-location" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="e.g. Farmgate, Dhaka / Online Live" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 6: Interactive Live Preview Container -->
+                    <div id="builder-tab-content-preview" class="builder-tab-panel space-y-4 hidden">
+                        <div class="flex items-center justify-between p-3 rounded-2xl bg-[var(--bg-soft)] border border-[var(--border-color)]">
+                            <div class="flex items-center gap-2 text-xs font-bold text-white">
+                                <i class="fas fa-eye text-indigo-400"></i> Interactive Live Simulation
+                            </div>
+                            <div class="flex items-center gap-1 bg-[var(--bg-primary)] p-1 rounded-xl border border-[var(--border-color)]">
+                                <button class="builder-viewport-btn active px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 text-white" data-viewport="desktop"><i class="fas fa-desktop mr-1"></i> Desktop</button>
+                                <button class="builder-viewport-btn px-2.5 py-1 rounded-lg text-xs font-bold text-gray-400 hover:text-white" data-viewport="mobile"><i class="fas fa-mobile-alt mr-1"></i> Mobile</button>
+                            </div>
+                        </div>
+                        <div id="builder-live-preview-stage" class="w-full rounded-2xl border-2 border-indigo-500/30 overflow-hidden bg-[var(--bg-primary)] transition-all duration-300">
+                            <!-- Live preview rendered inside here -->
+                        </div>
+                    </div>
                 </div>
             </section>
 
-            <!-- 14. TEACHER BUILDER -->
-            <section id="page-teacher-builder" class="content h-full overflow-y-auto p-4 md:p-8">
-                <div class="max-w-3xl mx-auto">
-                    <div class="flex items-center gap-3 mb-5">
-                        <button id="builder-back" class="text-xl text-[var(--text-muted)]"><i class="fas fa-arrow-left"></i></button>
-                        <h2 class="text-xl font-bold text-indigo-400"><i class="fas fa-paint-brush mr-2"></i>Custom .edu Web Hub</h2>
+            <!-- Custom Link Creation Modal (WordPress Menu Item) -->
+            <div id="builder-link-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+                <div class="dark-card max-w-md w-full p-5 rounded-2xl space-y-4 border border-indigo-500/40 shadow-2xl">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-sm text-white flex items-center gap-2"><i class="fas fa-link text-blue-400"></i> Add Third-Party Link</h3>
+                        <button id="close-builder-link-modal" class="text-gray-400 hover:text-white text-lg"><i class="fas fa-times"></i></button>
                     </div>
-                    <div class="dark-card p-5 mb-4">
-                        <h3 class="font-bold text-sm mb-2">Unique .edu Handle</h3>
-                        <div class="flex gap-2">
-                            <input id="builder-handle" class="flex-1 px-4 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)] font-mono" placeholder="e.g. mahin" maxlength="30" />
-                            <span class="self-center text-gray-400 font-mono text-sm">.edu</span>
-                            <button id="builder-save-handle" class="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-xs">Save</button>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Link Title / Label</label>
+                        <input id="builder-link-input-title" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white" placeholder="e.g. Google Drive Lecture Sheets" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Website URL</label>
+                        <input id="builder-link-input-url" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white font-mono" placeholder="https://drive.google.com/..." />
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">Icon Type</label>
+                            <select id="builder-link-input-icon" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white">
+                                <option value="globe">🌐 Website / Portal</option>
+                                <option value="drive">📁 Google Drive / Files</option>
+                                <option value="video">🎥 Zoom / Video Class</option>
+                                <option value="book">📚 Study Notes / PDF</option>
+                                <option value="code">💻 Code / GitHub</option>
+                                <option value="custom">🔗 External Link</option>
+                            </select>
                         </div>
-                        <p class="text-[11px] text-gray-500 mt-2">Public Page: <span id="builder-handle-preview" class="text-blue-400 font-mono">—</span></p>
-                    </div>
-                    <div class="dark-card p-5 mb-4">
-                        <h3 class="font-bold text-sm mb-3">Header & Brand</h3>
-                        <input id="builder-title" class="w-full mb-3 px-4 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="Site Title (e.g. Physics Academy)" />
-                        <textarea id="builder-bio" rows="2" class="w-full mb-3 px-4 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)]" placeholder="Tagline or Bio"></textarea>
-                        <div class="border-2 border-dashed border-[var(--border-color)] rounded-xl p-3 text-center cursor-pointer hover:border-indigo-500" id="builder-banner-drop">
-                            <i class="fas fa-image text-lg text-gray-400"></i>
-                            <p class="text-[11px] text-gray-400">Upload Banner Image</p>
-                        </div>
-                        <input type="file" id="builder-banner-file" accept="image/*" class="hidden" />
-                        <img id="builder-banner-preview" class="w-full max-h-32 object-cover rounded-xl mt-2 hidden" />
-                    </div>
-                    <div class="dark-card p-5 mb-4">
-                        <h3 class="font-bold text-sm mb-3">Theme Style</h3>
-                        <div class="flex gap-2 flex-wrap" id="builder-theme-options">
-                            <button class="builder-theme-btn px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-xs" data-theme="dark">Modern Dark</button>
-                            <button class="builder-theme-btn px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-xs" data-theme="blue">Elegant Blue</button>
-                            <button class="builder-theme-btn px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-xs" data-theme="academic">Classic Academic</button>
-                            <button class="builder-theme-btn px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-xs" data-theme="green">Fresh Green</button>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">Badge Tag (Optional)</label>
+                            <input id="builder-link-input-badge" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white" placeholder="e.g. Free Notes" />
                         </div>
                     </div>
-                    <div class="dark-card p-5 mb-4 space-y-3">
-                        <h3 class="font-bold text-sm mb-2">Content Blocks</h3>
-                        <div class="flex items-center justify-between p-2 rounded-xl bg-[var(--bg-soft)] text-xs">
-                            <span>📢 Announcement Board</span>
-                            <div class="toggle-switch" id="block-announcement"><div class="knob"></div></div>
-                        </div>
-                        <textarea id="builder-announcement" rows="2" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-[var(--text-primary)] hidden" placeholder="Write an announcement…"></textarea>
-                        
-                        <div class="flex items-center justify-between p-2 rounded-xl bg-[var(--bg-soft)] text-xs">
-                            <span>🔗 Social Profiles</span>
-                            <div class="toggle-switch" id="block-social"><div class="knob"></div></div>
-                        </div>
-                        <div id="builder-social-fields" class="hidden space-y-2">
-                            <input id="builder-fb" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Facebook Profile Link" />
-                            <input id="builder-yt" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="YouTube Channel Link" />
-                            <input id="builder-ig" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Instagram Profile Link" />
-                        </div>
-                        
-                        <div class="flex items-center justify-between p-2 rounded-xl bg-[var(--bg-soft)] text-xs">
-                            <span>❓ Frequently Asked Questions</span>
-                            <div class="toggle-switch" id="block-faq"><div class="knob"></div></div>
-                        </div>
-                        <div id="builder-faq-fields" class="hidden space-y-2">
-                            <input id="builder-faq-q1" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Question 1" />
-                            <input id="builder-faq-a1" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Answer 1" />
-                            <input id="builder-faq-q2" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Question 2" />
-                            <input id="builder-faq-a2" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Answer 2" />
-                        </div>
-                        
-                        <div class="flex items-center justify-between p-2 rounded-xl bg-[var(--bg-soft)] text-xs">
-                            <span>🎬 Demo Videos</span>
-                            <div class="toggle-switch active" id="block-videos"><div class="knob"></div></div>
-                        </div>
-                        <div id="builder-videos-fields" class="space-y-2">
-                            <input id="builder-video1" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Demo YouTube Video 1" />
-                            <input id="builder-video2" class="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs" placeholder="Demo YouTube Video 2" />
-                        </div>
-                        
-                        <div class="flex items-center justify-between p-2 rounded-xl bg-[var(--bg-soft)] text-xs">
-                            <span>📚 Show Courses</span>
-                            <div class="toggle-switch active" id="block-courses"><div class="knob"></div></div>
-                        </div>
-                    </div>
-                    <button id="builder-publish" class="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition mb-20">
-                        <i class="fas fa-rocket mr-2"></i> Publish Website
-                    </button>
+                    <button id="builder-save-link-btn" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-bold text-xs text-white shadow-lg transition">Save Link</button>
                 </div>
-            </section>
+            </div>
+
+            <!-- Blog Article Editor Modal (WordPress Article Engine) -->
+            <div id="builder-article-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+                <div class="dark-card max-w-xl w-full p-5 rounded-2xl space-y-3 border border-emerald-500/40 shadow-2xl max-h-[90vh] overflow-y-auto">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-sm text-white flex items-center gap-2"><i class="fas fa-newspaper text-emerald-400"></i> Write Educational Article</h3>
+                        <button id="close-builder-article-modal" class="text-gray-400 hover:text-white text-lg"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Article Title</label>
+                        <input id="builder-article-input-title" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white" placeholder="e.g. How to Master Newtonian Mechanics in 7 Days" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">Category / Tag</label>
+                            <input id="builder-article-input-cat" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white" placeholder="e.g. Physics Tips / Exam Guide" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">Read Time</label>
+                            <input id="builder-article-input-time" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white" placeholder="e.g. 5 min read" value="4 min read" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Short Excerpt / Summary</label>
+                        <input id="builder-article-input-excerpt" class="w-full px-3 py-2 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white" placeholder="Quick 1-sentence overview of the article…" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Article Content (Markdown & Formatted Text)</label>
+                        <textarea id="builder-article-input-body" rows="6" class="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-soft)] border border-[var(--border-color)] outline-none text-xs text-white resize-y" placeholder="Write full article, formulas, key points, syllabus outlines…"></textarea>
+                    </div>
+                    <button id="builder-save-article-btn" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-xs text-white shadow-lg transition">Publish Article</button>
+                </div>
+            </div>
 
             <!-- 15. TEACHER PUBLIC WEB PAGE -->
             <section id="page-teacher-web" class="content h-full overflow-y-auto">

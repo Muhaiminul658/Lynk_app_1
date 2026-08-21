@@ -402,13 +402,26 @@ function getFirebaseErrorMessage(error) {
 
 function formatLastSeen(ts) {
     if (!ts) return "Offline";
-    const d = Date.now() - ts;
+    let time = ts;
+    if (typeof ts === "object") {
+        if (ts.seconds) time = ts.seconds * 1000;
+        else if (typeof ts.toDate === "function") time = ts.toDate().getTime();
+        else time = Date.now();
+    } else if (typeof ts === "string") {
+        const parsed = Date.parse(ts);
+        time = isNaN(parsed) ? Date.now() : parsed;
+    }
+    const d = Math.max(0, Date.now() - Number(time));
     if (d < 60000) return "Just now";
     const m = Math.floor(d / 60000);
     if (m < 60) return `${m}m ago`;
     const h = Math.floor(m / 60);
     if (h < 24) return `${h}h ago`;
-    return "Offline";
+    const days = Math.floor(h / 24);
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 4) return `${weeks}w ago`;
+    return `${Math.floor(days / 30)}mo ago`;
 }
 
 function formatTimeAgo(ts) {
@@ -956,6 +969,8 @@ export function showPage(page, pushState = true) {
         if (b.dataset.page === page) b.classList.add("active-nav", "active");
     });
     if (page === "feed") { loadFeed(); }
+    if (page === "friends") { loadFriends(); }
+    if (page === "chats") { loadChatList(); renderChatTop(); }
     if (page === "support") loadSupportMessages();
     if (page === "admin" && isAdmin) { loadAdminSupportInbox(); loadVerificationRequests(); loadAdminRechargeCodes(); loadAdminWithdrawals(); }
     if (page === "profile") { renderProfilePosts(); renderProfileSavedVideos(); }
@@ -1006,6 +1021,17 @@ function setupNavigation() {
         openTeacherRegistration();
     });
     $("teacher-dashboard-btn")?.addEventListener("click", openTeacherDashboard);
+    $("profile-open-builder-btn")?.addEventListener("click", () => showPage("teacher-builder"));
+    $("profile-view-my-web-btn")?.addEventListener("click", () => {
+        const handle = currentUserData?.teacherUsername || currentUserData?.username;
+        if (!handle) {
+            showToast("Set up your handle in Web Studio first.", "info");
+            showPage("teacher-builder");
+            return;
+        }
+        window._teacherWebHandle = handle;
+        showPage("teacher-web");
+    });
 }
 
 // Blocked users management
@@ -1235,6 +1261,7 @@ function updateRoleUI() {
     if (!currentUserData) return;
     const role = currentUserData.role || "user";
     const isTeacher = role === "teacher";
+    const isVerifiedTeacher = isTeacher || currentUserData.verified || !!(currentUserData.teacherUsername);
     const dashBtn = $("teacher-dashboard-btn");
     if (dashBtn) dashBtn.style.display = isTeacher ? "inline-flex" : "none";
     const roleBadge = $("profile-role-badge");
@@ -1247,6 +1274,17 @@ function updateRoleUI() {
             roleBadge.classList.remove("hidden");
         } else {
             roleBadge.classList.add("hidden");
+        }
+    }
+    const teacherCard = $("profile-teacher-web-card");
+    if (teacherCard) {
+        teacherCard.classList.toggle("hidden", !isVerifiedTeacher);
+        teacherCard.classList.toggle("flex", isVerifiedTeacher);
+        const domainPreview = $("profile-teacher-domain-preview");
+        if (domainPreview) {
+            domainPreview.textContent = currentUserData.teacherUsername 
+                ? `teacher.edu/${currentUserData.teacherUsername}` 
+                : "Create your personal .edu portal";
         }
     }
     const withdrawSec = $("teacher-withdraw-section");
@@ -1496,7 +1534,16 @@ function viewNote(user, note) {
     $("view-note-modal")?.classList.add("active");
 }
 
-// Friends System
+// Friends System & Reactive Presence
+let friendsPresenceUnsubscribers = [];
+
+function clearFriendsPresenceListeners() {
+    friendsPresenceUnsubscribers.forEach(unsub => {
+        if (typeof unsub === "function") unsub();
+    });
+    friendsPresenceUnsubscribers = [];
+}
+
 async function loadFriends() {
     if (!currentUser) return;
     const s = await get(ref(db, `friends/${currentUser.uid}`));
@@ -1515,31 +1562,91 @@ async function loadFriends() {
 async function renderFriends() {
     const container = $("friends-list");
     if (!container) return;
+    clearFriendsPresenceListeners();
     container.innerHTML = "";
     const ids = Object.keys(friendsCache || {});
     if (!ids.length) { 
-      container.innerHTML = `<div class="text-center text-[var(--text-muted)] py-10 text-xs">No friends yet.</div>`; 
+      container.innerHTML = `<div class="text-center text-[var(--text-muted)] py-10 text-xs">No friends yet. Discover people on your feed or search.</div>`; 
+      const onlineBadge = $("friends-online-count");
+      if (onlineBadge) onlineBadge.textContent = "0 Online";
       return; 
     }
+    
+    let onlineCount = 0;
+    const updateOnlineSummary = () => {
+        const onlineBadge = $("friends-online-count");
+        if (onlineBadge) onlineBadge.textContent = `${onlineCount} Online`;
+    };
+
+    const friendOnlineMap = {};
+
     for (const uid of ids) {
         const user = await getUserByUID(uid);
         if (!user) continue;
-        container.appendChild(createUserCard(user, true));
+        const card = createUserCard(user, true, (isOnline) => {
+            const wasOnline = !!friendOnlineMap[uid];
+            friendOnlineMap[uid] = isOnline;
+            if (isOnline && !wasOnline) onlineCount++;
+            else if (!isOnline && wasOnline) onlineCount = Math.max(0, onlineCount - 1);
+            updateOnlineSummary();
+        });
+        container.appendChild(card);
     }
+    updateOnlineSummary();
 }
 
-function createUserCard(user, showChat = false) {
+function createUserCard(user, showChat = false, onPresenceChange = null) {
     const card = document.createElement("div");
-    card.className = "dark-card p-3 flex items-center gap-3 cursor-pointer hover:bg-[var(--bg-soft)] transition";
+    card.className = "dark-card p-3.5 flex items-center gap-3 cursor-pointer hover:bg-[var(--bg-soft)] transition border border-[var(--border-color)]/40 rounded-2xl";
+    
+    const cardId = `friend-card-${user.uid}-${Math.random().toString(36).substring(2, 6)}`;
+    card.id = cardId;
+    
     card.innerHTML = `
-        <div class="avatar-wrap"><img src="${user.photoURL || DEFAULT_AVATAR}" class="avatar-img">${user.online ? `<span class="online-dot"></span>` : ""}</div>
+        <div class="relative w-11 h-11 flex-shrink-0">
+            <img src="${user.photoURL || DEFAULT_AVATAR}" class="w-11 h-11 rounded-full object-cover border border-[var(--border-color)]">
+            <span class="friend-presence-dot absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[var(--bg-card)] hidden ring-2 ring-emerald-500/30"></span>
+        </div>
         <div class="flex-1 min-w-0">
-            <div class="font-bold text-xs truncate">${escapeHTML(user.nickname || "User")}${user.verified ? `<span class="verified-badge"><i class="fas fa-check"></i></span>` : ""}</div>
-            <div class="text-[10px] text-gray-400 truncate">@${escapeHTML(user.username || "")} · ${user.online ? "Online" : "Offline"}</div>
+            <div class="font-bold text-xs truncate flex items-center gap-1">
+                ${escapeHTML(user.nickname || "User")}
+                ${user.verified ? `<span class="verified-badge"><i class="fas fa-check"></i></span>` : ""}
+                ${user.role === 'teacher' ? `<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-400 font-bold">Teacher</span>` : ""}
+            </div>
+            <div class="friend-presence-status text-[11px] text-gray-400 truncate mt-0.5 flex items-center gap-1">
+                <span>@${escapeHTML(user.username || "")}</span>
+                <span class="text-gray-600">·</span>
+                <span class="friend-status-text text-gray-400 font-normal">Offline</span>
+            </div>
         </div>`;
+        
+    const dotEl = card.querySelector(".friend-presence-dot");
+    const statusTextEl = card.querySelector(".friend-status-text");
+
+    // Realtime presence listener for accurate status & last active time
+    const unsub = listenToPresence(user.uid, (presence) => {
+        const isOnline = presence?.online === true;
+        if (dotEl) {
+            dotEl.classList.toggle("hidden", !isOnline);
+        }
+        if (statusTextEl) {
+            if (isOnline) {
+                statusTextEl.innerHTML = `<span class="text-emerald-400 font-semibold flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Active now</span>`;
+            } else {
+                const lastSeenTime = presence?.lastSeen || user.lastSeen;
+                const formatted = formatLastSeen(lastSeenTime);
+                statusTextEl.innerHTML = `<span class="text-gray-400">Offline · ${formatted}</span>`;
+            }
+        }
+        if (typeof onPresenceChange === "function") {
+            onPresenceChange(isOnline);
+        }
+    });
+    friendsPresenceUnsubscribers.push(unsub);
+
     if (showChat) {
         const btn = document.createElement("button");
-        btn.className = "w-8 h-8 rounded-full bg-[#0095f6] flex items-center justify-center text-white text-xs";
+        btn.className = "w-8 h-8 rounded-full bg-[#0095f6] hover:bg-[#1877f2] flex items-center justify-center text-white text-xs shadow-md transition flex-shrink-0";
         btn.innerHTML = `<i class="fas fa-paper-plane"></i>`;
         btn.onclick = e => { e.stopPropagation(); openChat(user); };
         card.appendChild(btn);
@@ -1563,8 +1670,18 @@ async function renderChatTop() {
         const item = document.createElement("div");
         item.className = "flex flex-col items-center gap-1 cursor-pointer flex-shrink-0";
         item.innerHTML = `
-            <div class="relative"><img src="${user.photoURL || DEFAULT_AVATAR}" class="w-12 h-12 rounded-full object-cover border-2 border-[var(--border-color)]">${user.online ? `<span class="online-dot"></span>` : ""}</div>
+            <div class="relative w-12 h-12">
+                <img src="${user.photoURL || DEFAULT_AVATAR}" class="w-12 h-12 rounded-full object-cover border-2 border-[var(--border-color)]">
+                <span class="chat-top-dot absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[var(--bg-primary)] hidden"></span>
+            </div>
             <span class="text-[10px] text-gray-400 max-w-[50px] truncate">${escapeHTML(user.nickname?.split(" ")[0] || "User")}</span>`;
+            
+        const dot = item.querySelector(".chat-top-dot");
+        const unsub = listenToPresence(uid, (pres) => {
+            if (dot) dot.classList.toggle("hidden", pres?.online !== true);
+        });
+        friendsPresenceUnsubscribers.push(unsub);
+        
         item.onclick = () => openChat(user);
         container.appendChild(item);
     }
@@ -1690,16 +1807,23 @@ async function renderUserProfilePage(user) {
     }
     const isFollower = isFollowing(user.uid),
           isFriendUser = isFriend(user.uid),
-          isBlockedUser = isBlocked(user.uid);
+          isBlockedUser = isBlocked(user.uid),
+          hasTeacherWeb = user.role === 'teacher' || !!user.teacherUsername || !!user.verified;
     actions.innerHTML = `
         <div class="flex gap-2 flex-wrap">
             <button id="user-page-chat-btn" class="profile-action-btn primary text-xs"><i class="fas fa-paper-plane mr-1"></i>Message</button>
             <button id="user-page-friend-btn" class="profile-action-btn text-xs"><i class="fas fa-${isFriendUser ? "user-check" : "user-plus"} mr-1"></i>${isFriendUser ? "Friends" : "Add"}</button>
             <button id="user-page-follow-btn" class="profile-action-btn text-xs ${isFollower ? "bg-green-600/30 text-green-400" : ""}"><i class="fas fa-${isFollower ? "check" : "plus"} mr-1"></i>${isFollower ? "Following" : "Follow"}</button>
+            ${hasTeacherWeb ? `<button id="user-page-teacher-web-btn" class="profile-action-btn text-xs text-indigo-300 border-indigo-500/40 bg-indigo-600/20 hover:bg-indigo-600/30"><i class="fas fa-globe mr-1"></i>Website (.edu)</button>` : ''}
         </div>
         <button id="user-page-block-btn" class="profile-action-btn text-xs text-red-400 border-red-500/30 mt-1"><i class="fas fa-${isBlockedUser ? "undo" : "ban"} mr-1"></i>${isBlockedUser ? "Unblock" : "Block"}</button>`;
     
     $("user-page-chat-btn")?.addEventListener("click", () => { showPage("chats"); openChat(user); });
+    $("user-page-teacher-web-btn")?.addEventListener("click", () => {
+        const handle = user.teacherUsername || user.username;
+        window._teacherWebHandle = handle;
+        showPage("teacher-web");
+    });
     $("user-page-friend-btn")?.addEventListener("click", () => { 
       if (!isFriendUser) { 
         sendFriendRequest(user); 
@@ -2044,14 +2168,24 @@ function loadChatList() {
             const item = document.createElement("div");
             item.className = "p-3.5 flex items-center gap-3 cursor-pointer hover:bg-[var(--bg-soft)] transition border-b border-[var(--border-color)]/30";
             item.innerHTML = `
-                <div class="avatar-wrap"><img src="${user.photoURL || DEFAULT_AVATAR}" class="avatar-img">${user.online ? `<span class="online-dot"></span>` : ""}</div>
+                <div class="relative w-10 h-10 flex-shrink-0">
+                    <img src="${user.photoURL || DEFAULT_AVATAR}" class="w-10 h-10 rounded-full object-cover border border-[var(--border-color)]">
+                    <span class="chat-row-dot absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[var(--bg-card)] hidden"></span>
+                </div>
                 <div class="flex-1 min-w-0">
-                    <div class="font-semibold text-xs truncate flex items-center gap-1">
-                        ${escapeHTML(user.nickname || "User")}
-                        ${user.verified ? `<span class="verified-badge"><i class="fas fa-check"></i></span>` : ""}
+                    <div class="font-semibold text-xs truncate flex items-center justify-between">
+                        <span class="flex items-center gap-1">
+                            ${escapeHTML(user.nickname || "User")}
+                            ${user.verified ? `<span class="verified-badge"><i class="fas fa-check"></i></span>` : ""}
+                        </span>
+                        <span class="text-[10px] text-gray-500 font-normal">${formatTimeAgo(chat.updatedAt)}</span>
                     </div>
                     <div class="text-[11px] text-gray-400 truncate mt-0.5">${escapeHTML(chat.lastMessage || "Message")}</div>
                 </div>`;
+            const rowDot = item.querySelector(".chat-row-dot");
+            listenToPresence(user.uid, (pres) => {
+                if (rowDot) rowDot.classList.toggle("hidden", pres?.online !== true);
+            });
             item.onclick = () => openChat(user);
             container.appendChild(item);
         }
@@ -4820,39 +4954,152 @@ $("withdraw-btn")?.addEventListener("click", async () => {
 $("dash-withdraw")?.addEventListener("click", () => showPage("wallet"));
 $("dash-open-builder")?.addEventListener("click", () => showPage("teacher-builder"));
 
-// Teacher Website Builder (.edu)
+// ==========================================
+// ADVANCED WORDPRESS-STYLE TEACHER WEB STUDIO (.edu)
+// ==========================================
 let builderCurrentTheme = "dark";
+let builderCustomLinks = [];
+let builderArticles = [];
+let builderEditingLinkId = null;
+let builderEditingArticleId = null;
+
+const TEACHER_THEMES = {
+    dark: {
+        id: "dark",
+        name: "Dark Luxury",
+        bgClass: "bg-[#090b10] text-gray-100",
+        heroBg: "from-slate-900 via-indigo-950/40 to-[#090b10]",
+        cardBg: "bg-[#121620] border-slate-800",
+        accent: "text-indigo-400",
+        accentBg: "bg-indigo-600 hover:bg-indigo-500",
+        chipBg: "bg-indigo-500/10 text-indigo-300 border-indigo-500/20"
+    },
+    oxford: {
+        id: "oxford",
+        name: "Oxford Navy",
+        bgClass: "bg-[#071324] text-slate-100",
+        heroBg: "from-blue-950 via-cyan-950/30 to-[#071324]",
+        cardBg: "bg-[#0d1f38] border-blue-900/50",
+        accent: "text-sky-400",
+        accentBg: "bg-sky-600 hover:bg-sky-500",
+        chipBg: "bg-sky-500/10 text-sky-300 border-sky-500/20"
+    },
+    emerald: {
+        id: "emerald",
+        name: "Cambridge Emerald",
+        bgClass: "bg-[#061c14] text-emerald-50",
+        heroBg: "from-emerald-950 via-teal-950/30 to-[#061c14]",
+        cardBg: "bg-[#0b2b20] border-emerald-800/50",
+        accent: "text-emerald-400",
+        accentBg: "bg-emerald-600 hover:bg-emerald-500",
+        chipBg: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+    },
+    cyber: {
+        id: "cyber",
+        name: "Silicon Tech",
+        bgClass: "bg-[#0a0614] text-purple-100",
+        heroBg: "from-purple-950 via-fuchsia-950/30 to-[#0a0614]",
+        cardBg: "bg-[#150d26] border-purple-800/50",
+        accent: "text-fuchsia-400",
+        accentBg: "bg-fuchsia-600 hover:bg-fuchsia-500",
+        chipBg: "bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/20"
+    },
+    crimson: {
+        id: "crimson",
+        name: "Crimson Scholar",
+        bgClass: "bg-[#18080c] text-rose-100",
+        heroBg: "from-rose-950 via-red-950/30 to-[#18080c]",
+        cardBg: "bg-[#270d14] border-rose-900/50",
+        accent: "text-rose-400",
+        accentBg: "bg-rose-600 hover:bg-rose-500",
+        chipBg: "bg-rose-500/10 text-rose-300 border-rose-500/20"
+    },
+    light: {
+        id: "light",
+        name: "Clean Minimalist",
+        bgClass: "bg-slate-50 text-slate-900",
+        heroBg: "from-slate-100 via-blue-50 to-slate-50",
+        cardBg: "bg-white border-slate-200 shadow-sm",
+        accent: "text-blue-600",
+        accentBg: "bg-blue-600 hover:bg-blue-700",
+        chipBg: "bg-blue-50 text-blue-700 border-blue-200"
+    }
+};
 
 async function loadTeacherBuilder() {
     if (!currentUser) return;
     const handle = currentUserData?.teacherUsername || "";
     if ($("builder-handle")) $("builder-handle").value = handle;
     if ($("builder-handle-preview")) $("builder-handle-preview").textContent = handle ? `teacher.edu/${handle}` : "—";
-    
-    // Toggle switch listeners
-    document.querySelectorAll("#block-announcement, #block-social, #block-faq, #block-videos, #block-courses").forEach(sw => {
-        sw.onclick = () => {
-            sw.classList.toggle("active");
-            if (sw.id === "block-announcement") $("builder-announcement")?.classList.toggle("hidden", !sw.classList.contains("active"));
-            if (sw.id === "block-social") $("builder-social-fields")?.classList.toggle("hidden", !sw.classList.contains("active"));
-            if (sw.id === "block-faq") $("builder-faq-fields")?.classList.toggle("hidden", !sw.classList.contains("active"));
+    if ($("builder-handle-live-link")) {
+        $("builder-handle-live-link").onclick = () => {
+            if (!handle) { showToast("Save your domain first.", "info"); return; }
+            window._teacherWebHandle = handle;
+            showPage("teacher-web");
+        };
+    }
+
+    // Studio Tabs Navigation
+    document.querySelectorAll(".builder-tab-btn").forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll(".builder-tab-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const tab = btn.dataset.tab;
+            document.querySelectorAll(".builder-tab-content").forEach(c => c.classList.add("hidden"));
+            const target = $(`builder-tab-content-${tab}`);
+            if (target) target.classList.remove("hidden");
+            if (tab === "preview") {
+                renderBuilderLivePreview();
+            }
         };
     });
 
+    // Theme selector
     document.querySelectorAll(".builder-theme-btn").forEach(btn => {
         btn.onclick = () => {
-            document.querySelectorAll(".builder-theme-btn").forEach(b => b.classList.remove("border-indigo-500", "bg-indigo-600/20"));
-            btn.classList.add("border-indigo-500", "bg-indigo-600/20");
+            document.querySelectorAll(".builder-theme-btn").forEach(b => b.classList.remove("border-emerald-500", "bg-emerald-500/10"));
+            btn.classList.add("border-emerald-500", "bg-emerald-500/10");
             builderCurrentTheme = btn.dataset.theme;
         };
     });
 
+    // Content Block Toggle Switches
+    const blockToggles = [
+        { sw: "builder-block-announcement", target: "builder-announcement-block" },
+        { sw: "builder-block-social", target: "builder-social-block" },
+        { sw: "builder-block-courses", target: "builder-courses-block" },
+        { sw: "builder-block-videos", target: "builder-videos-block" },
+        { sw: "builder-block-stats", target: "builder-stats-block" },
+        { sw: "builder-block-testimonials", target: "builder-testimonials-block" },
+        { sw: "builder-block-faq", target: "builder-faq-block" },
+        { sw: "builder-block-widgets", target: "builder-widgets-block" }
+    ];
+
+    blockToggles.forEach(({ sw, target }) => {
+        const swEl = $(sw);
+        if (swEl) {
+            swEl.onclick = () => {
+                swEl.classList.toggle("active");
+                const targetEl = $(target);
+                if (targetEl) targetEl.classList.toggle("hidden", !swEl.classList.contains("active"));
+            };
+        }
+    });
+
+    // Fetch existing teacher website configuration
     const snap = await get(ref(db, `teacherWebsites/${currentUser.uid}`));
     if (snap.exists()) {
         const data = snap.val();
-        if ($("builder-title")) $("builder-title").value = data.title || "";
-        if ($("builder-bio")) $("builder-bio").value = data.bio || "";
+        if ($("builder-title")) $("builder-title").value = data.title || currentUserData?.nickname || "";
+        if ($("builder-badge")) $("builder-badge").value = data.badge || "Senior Faculty";
+        if ($("builder-bio")) $("builder-bio").value = data.bio || currentUserData?.bio || "";
+        if ($("builder-cta-text")) $("builder-cta-text").value = data.ctaText || "Enroll in Masterclass";
+        if ($("builder-cta-url")) $("builder-cta-url").value = data.ctaUrl || "";
         if ($("builder-announcement")) $("builder-announcement").value = data.announcement || "";
+        if ($("builder-wa")) $("builder-wa").value = data.whatsapp || "";
+        if ($("builder-tg")) $("builder-tg").value = data.telegram || "";
+        if ($("builder-email")) $("builder-email").value = data.email || "";
+        if ($("builder-chamber")) $("builder-chamber").value = data.chamber || "";
         if ($("builder-fb")) $("builder-fb").value = data.facebook || "";
         if ($("builder-yt")) $("builder-yt").value = data.youtube || "";
         if ($("builder-ig")) $("builder-ig").value = data.instagram || "";
@@ -4862,15 +5109,257 @@ async function loadTeacherBuilder() {
         if ($("builder-faq-a1")) $("builder-faq-a1").value = data.faqA1 || "";
         if ($("builder-faq-q2")) $("builder-faq-q2").value = data.faqQ2 || "";
         if ($("builder-faq-a2")) $("builder-faq-a2").value = data.faqA2 || "";
+        if ($("builder-stat1-num")) $("builder-stat1-num").value = data.stat1Num || "12K+";
+        if ($("builder-stat1-label")) $("builder-stat1-label").value = data.stat1Label || "Students Mentored";
+        if ($("builder-stat2-num")) $("builder-stat2-num").value = data.stat2Num || "98.4%";
+        if ($("builder-stat2-label")) $("builder-stat2-label").value = data.stat2Label || "A+ Success Rate";
+        if ($("builder-stat3-num")) $("builder-stat3-num").value = data.stat3Num || "14+";
+        if ($("builder-stat3-label")) $("builder-stat3-label").value = data.stat3Label || "Years Experience";
+        if ($("builder-stat4-num")) $("builder-stat4-num").value = data.stat4Num || "50+";
+        if ($("builder-stat4-label")) $("builder-stat4-label").value = data.stat4Label || "Lectures / Notes";
+        if ($("builder-testi1-name")) $("builder-testi1-name").value = data.testi1Name || "Rahim Ahmed (BUET '24)";
+        if ($("builder-testi1-text")) $("builder-testi1-text").value = data.testi1Text || "Sir's physics conceptual series made the difference in my admission test. Truly unmatched!";
+        if ($("builder-testi2-name")) $("builder-testi2-name").value = data.testi2Name || "Sadia Karim (DMC '24)";
+        if ($("builder-testi2-text")) $("builder-testi2-text").value = data.testi2Text || "The daily practice problem sheets and revision roadmaps are worth gold.";
+        if ($("builder-widget-title")) $("builder-widget-title").value = data.widgetTitle || "Live Interactive Q&A Form";
+        if ($("builder-widget-url")) $("builder-widget-url").value = data.widgetUrl || "";
+
+        builderCustomLinks = Array.isArray(data.customLinks) ? data.customLinks : Object.values(data.customLinks || {});
+        builderArticles = Array.isArray(data.articles) ? data.articles : Object.values(data.articles || {});
+
         if (data.theme) {
             builderCurrentTheme = data.theme;
             const themeBtn = document.querySelector(`.builder-theme-btn[data-theme="${data.theme}"]`);
             if (themeBtn) themeBtn.click();
         }
+
+        // Restore switch active states
+        if (data.activeBlocks) {
+            blockToggles.forEach(({ sw, target }) => {
+                const swEl = $(sw);
+                const isAct = data.activeBlocks[sw] !== false;
+                if (swEl) {
+                    swEl.classList.toggle("active", isAct);
+                    const targetEl = $(target);
+                    if (targetEl) targetEl.classList.toggle("hidden", !isAct);
+                }
+            });
+        }
+    } else {
+        if ($("builder-title")) $("builder-title").value = currentUserData?.nickname || "Academic Mentor";
+        if ($("builder-bio")) $("builder-bio").value = currentUserData?.bio || "Welcome to my official educational portal. Access my latest masterclasses, study resources, formulas, and admission guides.";
     }
+
+    renderBuilderLinksList();
+    renderBuilderArticlesList();
 }
 
+function renderBuilderLinksList() {
+    const list = $("builder-custom-links-list");
+    const countBadge = $("builder-links-count");
+    if (countBadge) countBadge.textContent = `${builderCustomLinks.length} items`;
+    if (!list) return;
+    list.innerHTML = "";
+    if (!builderCustomLinks.length) {
+        list.innerHTML = `<div class="p-8 text-center text-gray-500 text-xs">No third-party links added yet. Click "+ Add Custom Link" above.</div>`;
+        return;
+    }
+    builderCustomLinks.forEach((l, idx) => {
+        const item = document.createElement("div");
+        item.className = "p-3.5 rounded-2xl bg-[var(--bg-soft)] border border-[var(--border-color)]/60 flex items-center justify-between gap-3 hover:border-emerald-500/40 transition";
+        item.innerHTML = `
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm flex-shrink-0">
+                    <i class="fas fa-${l.icon || 'link'}"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="font-bold text-xs truncate flex items-center gap-2">
+                        <span>${escapeHTML(l.title)}</span>
+                        ${l.badge ? `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500/20 text-indigo-300">${escapeHTML(l.badge)}</span>` : ''}
+                    </div>
+                    <div class="text-[10px] text-gray-400 truncate mt-0.5">${escapeHTML(l.url)}</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+                <button class="builder-edit-link-btn w-8 h-8 rounded-lg bg-[var(--bg-card)] hover:text-emerald-400 flex items-center justify-center text-xs transition"><i class="fas fa-edit"></i></button>
+                <button class="builder-del-link-btn w-8 h-8 rounded-lg bg-[var(--bg-card)] hover:text-red-400 flex items-center justify-center text-xs transition"><i class="fas fa-trash"></i></button>
+            </div>
+        `;
+        item.querySelector(".builder-edit-link-btn").onclick = () => openLinkModal(idx);
+        item.querySelector(".builder-del-link-btn").onclick = () => {
+            builderCustomLinks.splice(idx, 1);
+            renderBuilderLinksList();
+            showToast("Link removed.", "info");
+        };
+        list.appendChild(item);
+    });
+}
+
+function openLinkModal(idx = null) {
+    builderEditingLinkId = idx;
+    const modal = $("builder-link-modal");
+    if (!modal) return;
+    if (idx !== null && builderCustomLinks[idx]) {
+        const item = builderCustomLinks[idx];
+        if ($("builder-link-input-title")) $("builder-link-input-title").value = item.title || "";
+        if ($("builder-link-input-url")) $("builder-link-input-url").value = item.url || "";
+        if ($("builder-link-input-icon")) $("builder-link-input-icon").value = item.icon || "link";
+        if ($("builder-link-input-badge")) $("builder-link-input-badge").value = item.badge || "";
+    } else {
+        if ($("builder-link-input-title")) $("builder-link-input-title").value = "";
+        if ($("builder-link-input-url")) $("builder-link-input-url").value = "";
+        if ($("builder-link-input-icon")) $("builder-link-input-icon").value = "link";
+        if ($("builder-link-input-badge")) $("builder-link-input-badge").value = "";
+    }
+    modal.classList.add("active");
+}
+
+function renderBuilderArticlesList() {
+    const list = $("builder-articles-list");
+    const countBadge = $("builder-articles-count");
+    if (countBadge) countBadge.textContent = `${builderArticles.length} published`;
+    if (!list) return;
+    list.innerHTML = "";
+    if (!builderArticles.length) {
+        list.innerHTML = `<div class="p-8 text-center text-gray-500 text-xs">No articles or notes published yet. Click "+ Write Article" above.</div>`;
+        return;
+    }
+    builderArticles.forEach((a, idx) => {
+        const item = document.createElement("div");
+        item.className = "p-3.5 rounded-2xl bg-[var(--bg-soft)] border border-[var(--border-color)]/60 flex items-center justify-between gap-3 hover:border-emerald-500/40 transition";
+        item.innerHTML = `
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center text-sm flex-shrink-0">
+                    <i class="fas fa-file-alt"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="font-bold text-xs truncate flex items-center gap-2">
+                        <span>${escapeHTML(a.title)}</span>
+                        <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300">${escapeHTML(a.category || 'Article')}</span>
+                    </div>
+                    <div class="text-[10px] text-gray-400 truncate mt-0.5">${escapeHTML(a.excerpt || a.body?.slice(0, 50) || '')}</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+                <button class="builder-edit-art-btn w-8 h-8 rounded-lg bg-[var(--bg-card)] hover:text-emerald-400 flex items-center justify-center text-xs transition"><i class="fas fa-edit"></i></button>
+                <button class="builder-del-art-btn w-8 h-8 rounded-lg bg-[var(--bg-card)] hover:text-red-400 flex items-center justify-center text-xs transition"><i class="fas fa-trash"></i></button>
+            </div>
+        `;
+        item.querySelector(".builder-edit-art-btn").onclick = () => openArticleModal(idx);
+        item.querySelector(".builder-del-art-btn").onclick = () => {
+            builderArticles.splice(idx, 1);
+            renderBuilderArticlesList();
+            showToast("Article deleted.", "info");
+        };
+        list.appendChild(item);
+    });
+}
+
+function openArticleModal(idx = null) {
+    builderEditingArticleId = idx;
+    const modal = $("builder-article-modal");
+    if (!modal) return;
+    if (idx !== null && builderArticles[idx]) {
+        const item = builderArticles[idx];
+        if ($("builder-article-input-title")) $("builder-article-input-title").value = item.title || "";
+        if ($("builder-article-input-cat")) $("builder-article-input-cat").value = item.category || "Study Notes";
+        if ($("builder-article-input-time")) $("builder-article-input-time").value = item.readTime || "4 min read";
+        if ($("builder-article-input-excerpt")) $("builder-article-input-excerpt").value = item.excerpt || "";
+        if ($("builder-article-input-body")) $("builder-article-input-body").value = item.body || "";
+    } else {
+        if ($("builder-article-input-title")) $("builder-article-input-title").value = "";
+        if ($("builder-article-input-cat")) $("builder-article-input-cat").value = "Study Notes";
+        if ($("builder-article-input-time")) $("builder-article-input-time").value = "4 min read";
+        if ($("builder-article-input-excerpt")) $("builder-article-input-excerpt").value = "";
+        if ($("builder-article-input-body")) $("builder-article-input-body").value = "";
+    }
+    modal.classList.add("active");
+}
+
+// Navigation & Modals Wiring
 $("builder-back")?.addEventListener("click", () => showPage("teacher-dashboard"));
+
+$("builder-add-link-btn")?.addEventListener("click", () => openLinkModal(null));
+$("builder-close-link-modal")?.addEventListener("click", () => $("builder-link-modal")?.classList.remove("active"));
+$("builder-save-link-btn")?.addEventListener("click", () => {
+    const title = $("builder-link-input-title")?.value.trim();
+    const url = $("builder-link-input-url")?.value.trim();
+    const icon = $("builder-link-input-icon")?.value || "link";
+    const badge = $("builder-link-input-badge")?.value.trim();
+    if (!title || !url) { showToast("Title and URL are required.", "error"); return; }
+    
+    let formattedUrl = url;
+    if (!/^https?:\/\//i.test(formattedUrl)) {
+        formattedUrl = 'https://' + formattedUrl;
+    }
+
+    const payload = {
+        id: builderEditingLinkId !== null && builderCustomLinks[builderEditingLinkId]?.id ? builderCustomLinks[builderEditingLinkId].id : `link_${Date.now()}`,
+        title,
+        url: formattedUrl,
+        icon,
+        badge
+    };
+
+    if (builderEditingLinkId !== null && builderCustomLinks[builderEditingLinkId]) {
+        builderCustomLinks[builderEditingLinkId] = payload;
+    } else {
+        builderCustomLinks.push(payload);
+    }
+
+    $("builder-link-modal")?.classList.remove("active");
+    renderBuilderLinksList();
+    showToast("Link added to website menu! 🔗", "success");
+});
+
+$("builder-add-article-btn")?.addEventListener("click", () => openArticleModal(null));
+$("builder-close-article-modal")?.addEventListener("click", () => $("builder-article-modal")?.classList.remove("active"));
+$("builder-save-article-btn")?.addEventListener("click", () => {
+    const title = $("builder-article-input-title")?.value.trim();
+    const category = $("builder-article-input-cat")?.value.trim() || "Study Notes";
+    const readTime = $("builder-article-input-time")?.value.trim() || "4 min read";
+    const excerpt = $("builder-article-input-excerpt")?.value.trim();
+    const body = $("builder-article-input-body")?.value.trim();
+
+    if (!title || !body) { showToast("Article title and content are required.", "error"); return; }
+
+    const payload = {
+        id: builderEditingArticleId !== null && builderArticles[builderEditingArticleId]?.id ? builderArticles[builderEditingArticleId].id : `art_${Date.now()}`,
+        title,
+        category,
+        readTime,
+        excerpt: excerpt || (body.length > 90 ? body.substring(0, 90) + '…' : body),
+        body,
+        createdAt: Date.now()
+    };
+
+    if (builderEditingArticleId !== null && builderArticles[builderEditingArticleId]) {
+        builderArticles[builderEditingArticleId] = payload;
+    } else {
+        builderArticles.unshift(payload);
+    }
+
+    $("builder-article-modal")?.classList.remove("active");
+    renderBuilderArticlesList();
+    showToast("Article published! ✍️", "success");
+});
+
+// Viewport Switcher in Live Preview
+$("builder-preview-viewport-desktop")?.addEventListener("click", () => {
+    $("builder-preview-viewport-desktop").classList.add("bg-emerald-500", "text-black");
+    $("builder-preview-viewport-desktop").classList.remove("text-gray-400");
+    $("builder-preview-viewport-mobile").classList.remove("bg-emerald-500", "text-black");
+    $("builder-preview-viewport-mobile").classList.add("text-gray-400");
+    $("builder-preview-frame")?.classList.remove("max-w-sm", "border-4", "border-slate-700", "rounded-3xl");
+});
+
+$("builder-preview-viewport-mobile")?.addEventListener("click", () => {
+    $("builder-preview-viewport-mobile").classList.add("bg-emerald-500", "text-black");
+    $("builder-preview-viewport-mobile").classList.remove("text-gray-400");
+    $("builder-preview-viewport-desktop").classList.remove("bg-emerald-500", "text-black");
+    $("builder-preview-viewport-desktop").classList.add("text-gray-400");
+    $("builder-preview-frame")?.classList.add("max-w-sm", "border-4", "border-slate-700", "rounded-3xl");
+});
 
 $("builder-banner-drop")?.addEventListener("click", () => $("builder-banner-file")?.click());
 $("builder-banner-file")?.addEventListener("change", async e => {
@@ -4885,34 +5374,60 @@ $("builder-banner-file")?.addEventListener("change", async e => {
 });
 
 $("builder-save-handle")?.addEventListener("click", async () => {
-    const handle = $("builder-handle")?.value.trim().toLowerCase();
-    if (!handle) { showToast("Enter a valid handle.", "error"); return; }
-    showLoader("Saving handle…");
+    const handle = $("builder-handle")?.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (!handle) { showToast("Enter a valid handle (letters, numbers, hyphen).", "error"); return; }
+    showLoader("Registering .edu domain…");
     try {
         await update(ref(db, `users/${currentUser.uid}`), { teacherUsername: handle });
         await set(ref(db, `teacherUsernames/${handle}`), currentUser.uid);
         invalidateUser(currentUser.uid);
         currentUserData = await getUserByUID(currentUser.uid, true);
         if ($("builder-handle-preview")) $("builder-handle-preview").textContent = `teacher.edu/${handle}`;
-        showToast("Handle saved! 🌐", "success");
-    } catch (_) { showToast("Could not save handle.", "error"); }
+        updateRoleUI();
+        showToast(`Domain registered: teacher.edu/${handle} 🌐`, "success");
+    } catch (_) { showToast("Could not register handle.", "error"); }
     hideLoader();
 });
 
-$("builder-publish")?.addEventListener("click", async () => {
+async function saveTeacherWebsiteData() {
     if (!currentUser) return;
-    showLoader("Publishing…");
+    showLoader("Publishing Teacher Website…");
     try {
         let bannerUrl = null;
         const bannerFile = $("builder-banner-file")?.files?.[0];
         if (bannerFile) bannerUrl = await uploadToCloudinary(bannerFile);
-        
+
+        const handle = $("builder-handle")?.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "") || currentUserData?.teacherUsername || currentUserData?.username;
+        if (handle) {
+            await update(ref(db, `users/${currentUser.uid}`), { teacherUsername: handle });
+            await set(ref(db, `teacherUsernames/${handle}`), currentUser.uid);
+        }
+
+        const activeBlocks = {
+            "builder-block-announcement": $("builder-block-announcement")?.classList.contains("active") !== false,
+            "builder-block-social": $("builder-block-social")?.classList.contains("active") !== false,
+            "builder-block-courses": $("builder-block-courses")?.classList.contains("active") !== false,
+            "builder-block-videos": $("builder-block-videos")?.classList.contains("active") !== false,
+            "builder-block-stats": $("builder-block-stats")?.classList.contains("active") !== false,
+            "builder-block-testimonials": $("builder-block-testimonials")?.classList.contains("active") !== false,
+            "builder-block-faq": $("builder-block-faq")?.classList.contains("active") !== false,
+            "builder-block-widgets": $("builder-block-widgets")?.classList.contains("active") !== false
+        };
+
         const payload = {
             teacherUid: currentUser.uid,
-            title: $("builder-title")?.value.trim() || "",
+            handle: handle || "",
+            title: $("builder-title")?.value.trim() || currentUserData?.nickname || "Faculty Member",
+            badge: $("builder-badge")?.value.trim() || "Senior Faculty",
             bio: $("builder-bio")?.value.trim() || "",
+            ctaText: $("builder-cta-text")?.value.trim() || "Enroll in Masterclass",
+            ctaUrl: $("builder-cta-url")?.value.trim() || "",
             theme: builderCurrentTheme,
             announcement: $("builder-announcement")?.value.trim() || "",
+            whatsapp: $("builder-wa")?.value.trim() || "",
+            telegram: $("builder-tg")?.value.trim() || "",
+            email: $("builder-email")?.value.trim() || "",
+            chamber: $("builder-chamber")?.value.trim() || "",
             facebook: $("builder-fb")?.value.trim() || "",
             youtube: $("builder-yt")?.value.trim() || "",
             instagram: $("builder-ig")?.value.trim() || "",
@@ -4922,118 +5437,511 @@ $("builder-publish")?.addEventListener("click", async () => {
             faqA1: $("builder-faq-a1")?.value.trim() || "",
             faqQ2: $("builder-faq-q2")?.value.trim() || "",
             faqA2: $("builder-faq-a2")?.value.trim() || "",
+            stat1Num: $("builder-stat1-num")?.value.trim() || "12K+",
+            stat1Label: $("builder-stat1-label")?.value.trim() || "Students Mentored",
+            stat2Num: $("builder-stat2-num")?.value.trim() || "98.4%",
+            stat2Label: $("builder-stat2-label")?.value.trim() || "A+ Success Rate",
+            stat3Num: $("builder-stat3-num")?.value.trim() || "14+",
+            stat3Label: $("builder-stat3-label")?.value.trim() || "Years Experience",
+            stat4Num: $("builder-stat4-num")?.value.trim() || "50+",
+            stat4Label: $("builder-stat4-label")?.value.trim() || "Lectures / Notes",
+            testi1Name: $("builder-testi1-name")?.value.trim() || "Rahim Ahmed (BUET '24)",
+            testi1Text: $("builder-testi1-text")?.value.trim() || "Sir's physics conceptual series made the difference in my admission test. Truly unmatched!",
+            testi2Name: $("builder-testi2-name")?.value.trim() || "Sadia Karim (DMC '24)",
+            testi2Text: $("builder-testi2-text")?.value.trim() || "The daily practice problem sheets and revision roadmaps are worth gold.",
+            widgetTitle: $("builder-widget-title")?.value.trim() || "Interactive Form",
+            widgetUrl: $("builder-widget-url")?.value.trim() || "",
+            customLinks: builderCustomLinks,
+            articles: builderArticles,
+            activeBlocks,
             updatedAt: serverTimestamp()
         };
         if (bannerUrl) payload.bannerUrl = bannerUrl;
         await set(ref(db, `teacherWebsites/${currentUser.uid}`), payload);
-        showToast("Website published successfully! 🚀", "success");
-    } catch (_) { showToast("Failed to publish website.", "error"); }
+        invalidateUser(currentUser.uid);
+        currentUserData = await getUserByUID(currentUser.uid, true);
+        updateRoleUI();
+        showToast("Website published successfully! 🚀 Available at teacher.edu/" + handle, "success");
+    } catch (err) { 
+        showToast("Failed to publish website.", "error"); 
+    }
     hideLoader();
-});
+}
 
-// Render Teacher .edu Public Web
+$("builder-publish-btn")?.addEventListener("click", saveTeacherWebsiteData);
+$("builder-quick-save")?.addEventListener("click", saveTeacherWebsiteData);
+
+function renderBuilderLivePreview() {
+    const stage = $("builder-live-preview-stage");
+    if (!stage) return;
+    
+    const handle = $("builder-handle")?.value.trim() || currentUserData?.teacherUsername || currentUserData?.username || "teacher";
+    const title = $("builder-title")?.value.trim() || currentUserData?.nickname || "Faculty Member";
+    const badge = $("builder-badge")?.value.trim() || "Senior Faculty";
+    const bio = $("builder-bio")?.value.trim() || currentUserData?.bio || "Welcome to my academic portal.";
+    const themeKey = builderCurrentTheme || "dark";
+    const theme = TEACHER_THEMES[themeKey] || TEACHER_THEMES.dark;
+    const banner = $("builder-banner-preview")?.src || currentUserData?.coverPhoto || DEFAULT_COVER;
+    const avatar = currentUserData?.photoURL || DEFAULT_AVATAR;
+    const announcement = $("builder-announcement")?.value.trim();
+    const wa = $("builder-wa")?.value.trim();
+    const ctaText = $("builder-cta-text")?.value.trim() || "Enroll Now";
+    const ctaUrl = $("builder-cta-url")?.value.trim();
+
+    stage.innerHTML = `
+        <div class="w-full ${theme.bgClass} transition duration-300">
+            <!-- Hero Top Banner -->
+            <div class="relative w-full h-44 md:h-56 bg-slate-900 overflow-hidden">
+                <img src="${banner}" class="w-full h-full object-cover opacity-80" />
+                <div class="absolute inset-0 bg-gradient-to-t ${theme.heroBg} opacity-90"></div>
+                <div class="absolute top-3 left-3 px-3 py-1 rounded-full bg-black/60 backdrop-blur border border-white/10 text-[10px] font-mono text-emerald-400 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>teacher.edu/${escapeHTML(handle)}</span>
+                </div>
+            </div>
+
+            <!-- Profile Info Bar -->
+            <div class="px-5 -mt-12 relative z-10">
+                <div class="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-3">
+                    <div class="flex items-end gap-3">
+                        <img src="${avatar}" class="w-20 h-20 rounded-2xl object-cover border-4 border-[var(--bg-primary)] shadow-2xl" />
+                        <div>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <h1 class="text-base md:text-lg font-black">${escapeHTML(title)}</h1>
+                                <span class="text-blue-400"><i class="fas fa-check-circle"></i></span>
+                                <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${theme.chipBg}">${escapeHTML(badge)}</span>
+                            </div>
+                            <p class="text-[11px] font-mono opacity-80">${escapeHTML(currentUserData?.subject || 'Academic Mentor')} · ${escapeHTML(currentUserData?.institution || 'Portal')}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        ${wa ? `<a href="https://wa.me/${wa.replace(/[^0-9]/g, '')}" target="_blank" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg"><i class="fab fa-whatsapp"></i> Chat on WhatsApp</a>` : ''}
+                        ${ctaUrl ? `<a href="${ctaUrl}" target="_blank" class="px-3 py-1.5 rounded-xl ${theme.accentBg} text-white font-bold text-xs shadow-lg">${escapeHTML(ctaText)}</a>` : ''}
+                    </div>
+                </div>
+
+                <p class="text-xs opacity-90 leading-relaxed mt-3 max-w-2xl">${escapeHTML(bio)}</p>
+            </div>
+
+            <!-- Custom Third-Party Links Grid -->
+            ${builderCustomLinks.length ? `
+                <div class="px-5 mt-5">
+                    <h3 class="text-xs font-bold uppercase tracking-wider opacity-70 mb-2.5 flex items-center gap-1.5"><i class="fas fa-compass ${theme.accent}"></i> Quick Access & Third-Party Resources</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        ${builderCustomLinks.map(l => `
+                            <a href="${l.url}" target="_blank" class="p-3 rounded-2xl ${theme.cardBg} border flex items-center justify-between gap-3 hover:scale-[1.01] transition">
+                                <div class="flex items-center gap-2.5 min-w-0">
+                                    <div class="w-8 h-8 rounded-xl ${theme.chipBg} flex items-center justify-center text-xs flex-shrink-0">
+                                        <i class="fas fa-${l.icon || 'link'}"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="font-bold text-xs truncate flex items-center gap-1.5">
+                                            <span>${escapeHTML(l.title)}</span>
+                                            ${l.badge ? `<span class="px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/20 text-amber-300">${escapeHTML(l.badge)}</span>` : ''}
+                                        </div>
+                                        <div class="text-[10px] opacity-60 truncate">${escapeHTML(l.url)}</div>
+                                    </div>
+                                </div>
+                                <i class="fas fa-external-link-alt text-[10px] opacity-50"></i>
+                            </a>
+                        `).join("")}
+                    </div>
+                </div>
+            ` : ''}
+
+            <!-- Announcement Ticker -->
+            ${announcement ? `
+                <div class="mx-5 mt-5 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs">
+                    <div class="font-bold text-amber-400 mb-0.5 flex items-center gap-1.5"><i class="fas fa-bullhorn"></i> Important Announcement</div>
+                    <p class="opacity-90 leading-relaxed">${escapeHTML(announcement)}</p>
+                </div>
+            ` : ''}
+
+            <!-- Educational Blog Articles & Notes -->
+            ${builderArticles.length ? `
+                <div class="px-5 mt-6 pb-6">
+                    <h3 class="text-xs font-bold uppercase tracking-wider opacity-70 mb-3 flex items-center gap-1.5"><i class="fas fa-book-open ${theme.accent}"></i> Educational Notes & Articles (${builderArticles.length})</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        ${builderArticles.map(a => `
+                            <div class="p-3.5 rounded-2xl ${theme.cardBg} border flex flex-col justify-between">
+                                <div>
+                                    <div class="flex items-center justify-between gap-2 mb-1.5">
+                                        <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${theme.chipBg}">${escapeHTML(a.category || 'Article')}</span>
+                                        <span class="text-[9px] opacity-60"><i class="far fa-clock mr-1"></i>${escapeHTML(a.readTime || '3 min')}</span>
+                                    </div>
+                                    <h4 class="font-bold text-xs line-clamp-1 mb-1">${escapeHTML(a.title)}</h4>
+                                    <p class="text-[11px] opacity-75 line-clamp-2 leading-relaxed">${escapeHTML(a.excerpt || a.body || '')}</p>
+                                </div>
+                                <div class="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[11px] ${theme.accent} font-semibold">
+                                    <span>Read Full Note</span>
+                                    <i class="fas fa-arrow-right text-[9px]"></i>
+                                </div>
+                            </div>
+                        `).join("")}
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+// Render Teacher .edu Public Web Portal
 async function renderTeacherWeb(handle) {
     const container = $("teacher-web-container");
     if (!container) return;
-    container.innerHTML = `<div class="p-12 text-center text-gray-500 text-sm">Loading teacher portal…</div>`;
+    container.innerHTML = `
+        <div class="min-h-screen flex flex-col items-center justify-center p-12 text-center text-gray-400">
+            <div class="w-12 h-12 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-xs font-semibold">Resolving teacher.edu/${escapeHTML(handle)}…</p>
+        </div>
+    `;
     
     let teacherUid = null;
-    const handleSnap = await get(ref(db, `teacherUsernames/${handle.toLowerCase()}`));
+    const handleClean = handle.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    const handleSnap = await get(ref(db, `teacherUsernames/${handleClean}`));
     if (handleSnap.exists()) teacherUid = handleSnap.val();
+    
     if (!teacherUid) {
         const usersSnap = await get(ref(db, "users"));
         if (usersSnap.exists()) {
-            const match = Object.values(usersSnap.val()).find(u => u.teacherUsername && u.teacherUsername.toLowerCase() === handle.toLowerCase());
+            const match = Object.values(usersSnap.val()).find(u => 
+                (u.teacherUsername && u.teacherUsername.toLowerCase() === handleClean) ||
+                (u.username && u.username.toLowerCase() === handleClean)
+            );
             if (match) teacherUid = match.uid;
         }
     }
+
     if (!teacherUid) {
         container.innerHTML = `
-            <div class="p-12 text-center">
-                <div class="text-4xl mb-3">🎓</div>
-                <h2 class="text-xl font-bold mb-2">Teacher Not Found</h2>
-                <p class="text-xs text-gray-400 mb-4">No portal found for <strong>${escapeHTML(handle)}.edu</strong></p>
-                <button class="bg-[#0095f6] text-white px-5 py-2 rounded-xl text-xs font-bold" onclick="showPage('feed')">Back to Feed</button>
+            <div class="min-h-screen flex flex-col items-center justify-center p-8 text-center">
+                <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-3xl mb-4">🎓</div>
+                <h2 class="text-xl font-bold mb-2">Teacher Portal Not Found</h2>
+                <p class="text-xs text-gray-400 max-w-sm mb-6">No published educational website was found at <strong>teacher.edu/${escapeHTML(handle)}</strong>.</p>
+                <button class="bg-[#0095f6] hover:bg-[#1877f2] text-white px-6 py-2.5 rounded-xl text-xs font-bold transition shadow-lg" onclick="showPage('feed')">Return to Feed</button>
             </div>`;
         return;
     }
     
-    const teacher = await getUserByUID(teacherUid);
+    const teacher = await getUserByUID(teacherUid, true);
     const webSnap = await get(ref(db, `teacherWebsites/${teacherUid}`));
     const webData = webSnap.exists() ? webSnap.val() : {};
     const coursesSnap = await get(ref(db, "courses"));
     const allCourses = coursesSnap.exists() ? Object.values(coursesSnap.val()).filter(c => c.teacherUid === teacherUid) : [];
     
+    const themeKey = webData.theme || "dark";
+    const theme = TEACHER_THEMES[themeKey] || TEACHER_THEMES.dark;
+    const banner = webData.bannerUrl || teacher?.coverPhoto || DEFAULT_COVER;
+    const avatar = teacher?.photoURL || DEFAULT_AVATAR;
+    const title = webData.title || teacher?.nickname || "Faculty Member";
+    const badge = webData.badge || "Verified Educator";
+    const bio = webData.bio || teacher?.bio || "Welcome to my official educational portal.";
+    const activeBlocks = webData.activeBlocks || {};
+    const customLinks = Array.isArray(webData.customLinks) ? webData.customLinks : Object.values(webData.customLinks || {});
+    const articles = Array.isArray(webData.articles) ? webData.articles : Object.values(webData.articles || {});
+
     container.innerHTML = `
-        <div class="max-w-4xl mx-auto pb-24">
-            <div class="relative">
-                <img src="${webData.bannerUrl || teacher?.coverPhoto || DEFAULT_COVER}" class="w-full h-48 md:h-64 object-cover" />
-                <button class="absolute top-4 left-4 bg-black/60 backdrop-blur text-white px-3 py-1.5 rounded-full text-xs" onclick="showPage('feed')">
-                    <i class="fas fa-arrow-left mr-1"></i> Back
-                </button>
-            </div>
-            <div class="px-6 -mt-16 relative z-10 flex flex-col md:flex-row items-center md:items-end justify-between gap-4">
-                <div class="flex items-center gap-4">
-                    <img src="${teacher?.photoURL || DEFAULT_AVATAR}" class="w-24 h-24 rounded-2xl object-cover border-4 border-[var(--bg-primary)] shadow-2xl" />
-                    <div>
-                        <h1 class="text-xl md:text-2xl font-black flex items-center gap-1.5">
-                            ${escapeHTML(webData.title || teacher?.nickname || "Teacher")}
-                            <i class="fas fa-check-circle text-blue-400 text-sm"></i>
-                        </h1>
-                        <p class="text-xs text-indigo-400 font-mono">@${escapeHTML(handle)}.edu</p>
-                        <p class="text-xs text-gray-400 mt-1">${escapeHTML(teacher?.subject || "")} · ${escapeHTML(teacher?.institution || "")}</p>
+        <div class="min-h-screen ${theme.bgClass} pb-28">
+            <!-- Navigation Header -->
+            <header class="sticky top-0 z-30 backdrop-blur-md bg-black/40 border-b border-white/10 px-4 md:px-8 py-3 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <button class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xs transition" onclick="showPage('feed')">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="font-mono text-xs font-bold text-emerald-400">teacher.edu/${escapeHTML(handle)}</span>
                     </div>
                 </div>
-                <div class="flex gap-2">
-                    ${webData.facebook ? `<a href="${webData.facebook}" target="_blank" class="w-9 h-9 rounded-full bg-blue-600/20 text-blue-400 flex items-center justify-center text-sm"><i class="fab fa-facebook-f"></i></a>` : ''}
-                    ${webData.youtube ? `<a href="${webData.youtube}" target="_blank" class="w-9 h-9 rounded-full bg-red-600/20 text-red-400 flex items-center justify-center text-sm"><i class="fab fa-youtube"></i></a>` : ''}
-                    ${webData.instagram ? `<a href="${webData.instagram}" target="_blank" class="w-9 h-9 rounded-full bg-pink-600/20 text-pink-400 flex items-center justify-center text-sm"><i class="fab fa-instagram"></i></a>` : ''}
+                <div class="flex items-center gap-2">
+                    ${webData.whatsapp ? `
+                        <a href="https://wa.me/${webData.whatsapp.replace(/[^0-9]/g, '')}?text=Hello%20Teacher,%20I%20visited%20your%20website%20on%20Lynk" target="_blank" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg transition">
+                            <i class="fab fa-whatsapp text-sm"></i> <span>WhatsApp</span>
+                        </a>` : ''}
+                    <button class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold flex items-center gap-1.5 transition" onclick="navigator.clipboard.writeText(window.location.href); showToast('Website link copied! 📋', 'success')">
+                        <i class="fas fa-share-alt"></i> <span class="hidden sm:inline">Share</span>
+                    </button>
                 </div>
-            </div>
-            
-            ${webData.announcement ? `
-                <div class="mx-6 mt-6 p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 text-xs">
-                    <div class="font-bold text-indigo-400 mb-1 flex items-center gap-1"><i class="fas fa-bullhorn"></i> Announcement</div>
-                    <p class="text-gray-300 leading-relaxed">${escapeHTML(webData.announcement)}</p>
-                </div>` : ''}
+            </header>
 
-            <!-- Courses Section -->
-            <div class="px-6 mt-8">
-                <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><i class="fas fa-graduation-cap text-indigo-400"></i> Masterclasses & Lessons</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    ${allCourses.length ? allCourses.map(c => `
-                        <div class="dark-card p-4 flex gap-3">
-                            <img src="${c.thumbnail || DEFAULT_AVATAR}" class="w-20 h-20 rounded-xl object-cover" />
-                            <div class="flex-1 min-w-0">
-                                <h3 class="font-bold text-xs truncate">${escapeHTML(c.title)}</h3>
-                                <p class="text-[11px] text-gray-400 line-clamp-2 mt-0.5">${escapeHTML(c.description)}</p>
-                                <div class="mt-2 flex items-center justify-between">
-                                    <span class="text-xs font-bold text-amber-400">${c.type === 'pro' ? `৳${c.price}` : 'Free'}</span>
-                                    <button class="bg-[#0095f6] text-white px-3 py-1 rounded-lg text-xs font-bold" onclick="showPage('courses')">View</button>
+            <div class="max-w-4xl mx-auto px-4 md:px-6">
+                <!-- Hero Banner -->
+                <div class="relative w-full h-48 md:h-64 rounded-3xl overflow-hidden mt-4 shadow-2xl">
+                    <img src="${banner}" class="w-full h-full object-cover" />
+                    <div class="absolute inset-0 bg-gradient-to-t ${theme.heroBg} opacity-80"></div>
+                </div>
+
+                <!-- Teacher Bio & Profile Header -->
+                <div class="px-4 -mt-16 relative z-10 flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
+                    <div class="flex items-end gap-4">
+                        <img src="${avatar}" class="w-24 h-24 md:w-28 md:md:h-28 rounded-2xl object-cover border-4 border-[var(--bg-primary)] shadow-2xl" />
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h1 class="text-xl md:text-2xl font-black">${escapeHTML(title)}</h1>
+                                <span class="text-blue-400 text-base"><i class="fas fa-check-circle"></i></span>
+                                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold ${theme.chipBg}">${escapeHTML(badge)}</span>
+                            </div>
+                            <p class="text-xs font-medium opacity-80 mt-0.5">${escapeHTML(teacher?.subject || 'Academic Mentor')} · ${escapeHTML(teacher?.institution || 'Educational Leader')}</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        ${webData.ctaUrl ? `<a href="${webData.ctaUrl}" target="_blank" class="px-4 py-2 rounded-xl ${theme.accentBg} text-white font-bold text-xs shadow-xl transition">${escapeHTML(webData.ctaText || 'Enroll Now')}</a>` : ''}
+                        ${webData.facebook ? `<a href="${webData.facebook}" target="_blank" class="w-9 h-9 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center text-sm hover:bg-blue-600 hover:text-white transition"><i class="fab fa-facebook-f"></i></a>` : ''}
+                        ${webData.youtube ? `<a href="${webData.youtube}" target="_blank" class="w-9 h-9 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center text-sm hover:bg-red-600 hover:text-white transition"><i class="fab fa-youtube"></i></a>` : ''}
+                        ${webData.instagram ? `<a href="${webData.instagram}" target="_blank" class="w-9 h-9 rounded-xl bg-pink-600/20 text-pink-400 flex items-center justify-center text-sm hover:bg-pink-600 hover:text-white transition"><i class="fab fa-instagram"></i></a>` : ''}
+                    </div>
+                </div>
+
+                <div class="mt-4 px-4">
+                    <p class="text-xs md:text-sm opacity-90 leading-relaxed max-w-3xl">${escapeHTML(bio)}</p>
+                </div>
+
+                <!-- Custom Third-Party Links Menu -->
+                ${customLinks.length ? `
+                    <div class="mt-8 px-2">
+                        <h2 class="text-xs font-bold uppercase tracking-wider opacity-70 mb-3 flex items-center gap-1.5"><i class="fas fa-compass ${theme.accent}"></i> Verified Resources & External Services</h2>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            ${customLinks.map(l => `
+                                <a href="${l.url}" target="_blank" class="p-3.5 rounded-2xl ${theme.cardBg} border flex items-center justify-between gap-3 hover:scale-[1.02] hover:border-emerald-500/50 transition shadow-sm">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <div class="w-9 h-9 rounded-xl ${theme.chipBg} flex items-center justify-center text-xs flex-shrink-0">
+                                            <i class="fas fa-${l.icon || 'link'}"></i>
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="font-bold text-xs truncate flex items-center gap-1.5">
+                                                <span>${escapeHTML(l.title)}</span>
+                                                ${l.badge ? `<span class="px-1.5 py-0.2 rounded-full text-[8px] font-bold bg-amber-500/20 text-amber-300">${escapeHTML(l.badge)}</span>` : ''}
+                                            </div>
+                                            <div class="text-[10px] opacity-60 truncate mt-0.5">${escapeHTML(l.url)}</div>
+                                        </div>
+                                    </div>
+                                    <i class="fas fa-arrow-up-right-from-square text-[10px] opacity-50"></i>
+                                </a>
+                            `).join("")}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Urgent Announcement -->
+                ${(webData.announcement && activeBlocks["builder-block-announcement"] !== false) ? `
+                    <div class="mt-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs">
+                        <div class="font-bold text-amber-400 mb-1 flex items-center gap-2"><i class="fas fa-bullhorn"></i> Notice & Live Schedule</div>
+                        <p class="opacity-90 leading-relaxed">${escapeHTML(webData.announcement)}</p>
+                    </div>
+                ` : ''}
+
+                <!-- Stats Counters Grid -->
+                ${activeBlocks["builder-block-stats"] !== false ? `
+                    <div class="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="p-4 rounded-2xl ${theme.cardBg} border text-center">
+                            <div class="text-xl font-black ${theme.accent}">${escapeHTML(webData.stat1Num || '12K+')}</div>
+                            <div class="text-[10px] opacity-70 mt-0.5">${escapeHTML(webData.stat1Label || 'Students Mentored')}</div>
+                        </div>
+                        <div class="p-4 rounded-2xl ${theme.cardBg} border text-center">
+                            <div class="text-xl font-black text-emerald-400">${escapeHTML(webData.stat2Num || '98.4%')}</div>
+                            <div class="text-[10px] opacity-70 mt-0.5">${escapeHTML(webData.stat2Label || 'A+ Success Rate')}</div>
+                        </div>
+                        <div class="p-4 rounded-2xl ${theme.cardBg} border text-center">
+                            <div class="text-xl font-black text-purple-400">${escapeHTML(webData.stat3Num || '14+')}</div>
+                            <div class="text-[10px] opacity-70 mt-0.5">${escapeHTML(webData.stat3Label || 'Years Experience')}</div>
+                        </div>
+                        <div class="p-4 rounded-2xl ${theme.cardBg} border text-center">
+                            <div class="text-xl font-black text-amber-400">${escapeHTML(webData.stat4Num || '50+')}</div>
+                            <div class="text-[10px] opacity-70 mt-0.5">${escapeHTML(webData.stat4Label || 'Lectures / Notes')}</div>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Masterclasses & Lessons -->
+                ${activeBlocks["builder-block-courses"] !== false ? `
+                    <div class="mt-10">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-bold uppercase tracking-wider opacity-80 flex items-center gap-2"><i class="fas fa-graduation-cap ${theme.accent}"></i> Masterclasses & Courses</h2>
+                            <span class="text-xs opacity-60">${allCourses.length} available</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            ${allCourses.length ? allCourses.map(c => `
+                                <div class="p-4 rounded-2xl ${theme.cardBg} border flex gap-3.5 hover:border-emerald-500/40 transition">
+                                    <img src="${c.thumbnail || DEFAULT_AVATAR}" class="w-20 h-20 rounded-xl object-cover flex-shrink-0" />
+                                    <div class="flex-1 min-w-0 flex flex-col justify-between">
+                                        <div>
+                                            <h3 class="font-bold text-xs truncate">${escapeHTML(c.title)}</h3>
+                                            <p class="text-[11px] opacity-75 line-clamp-2 mt-0.5">${escapeHTML(c.description || '')}</p>
+                                        </div>
+                                        <div class="mt-2 flex items-center justify-between">
+                                            <span class="text-xs font-bold text-amber-400">${c.type === 'pro' ? `৳${c.price}` : 'Free'}</span>
+                                            <button class="bg-[#0095f6] hover:bg-[#1877f2] text-white px-3 py-1 rounded-lg text-xs font-bold transition" onclick="showPage('courses')">View</button>
+                                        </div>
+                                    </div>
                                 </div>
+                            `).join("") : `<div class="col-span-2 text-center py-8 rounded-2xl ${theme.cardBg} border text-xs opacity-60">No public courses published yet. Check back soon!</div>`}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Educational Blog & Notes Archive -->
+                ${articles.length ? `
+                    <div class="mt-10">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-bold uppercase tracking-wider opacity-80 flex items-center gap-2"><i class="fas fa-book-open ${theme.accent}"></i> Educational Notes & Study Guides</h2>
+                            <span class="text-xs opacity-60">${articles.length} posts</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            ${articles.map((a, idx) => `
+                                <div class="p-4 rounded-2xl ${theme.cardBg} border flex flex-col justify-between cursor-pointer hover:border-emerald-500/50 transition teacher-article-card" data-art-idx="${idx}">
+                                    <div>
+                                        <div class="flex items-center justify-between gap-2 mb-2">
+                                            <span class="px-2.5 py-0.5 rounded-full text-[9px] font-bold ${theme.chipBg}">${escapeHTML(a.category || 'Notes')}</span>
+                                            <span class="text-[10px] opacity-60"><i class="far fa-clock mr-1"></i>${escapeHTML(a.readTime || '4 min read')}</span>
+                                        </div>
+                                        <h3 class="font-bold text-xs line-clamp-1 mb-1">${escapeHTML(a.title)}</h3>
+                                        <p class="text-[11px] opacity-75 line-clamp-2 leading-relaxed">${escapeHTML(a.excerpt || a.body || '')}</p>
+                                    </div>
+                                    <div class="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-xs font-semibold ${theme.accent}">
+                                        <span>Read Full Article</span>
+                                        <i class="fas fa-arrow-right text-[10px]"></i>
+                                    </div>
+                                </div>
+                            `).join("")}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Featured YouTube Lectures -->
+                ${(webData.video1 || webData.video2) && activeBlocks["builder-block-videos"] !== false ? `
+                    <div class="mt-10">
+                        <h2 class="text-sm font-bold uppercase tracking-wider opacity-80 mb-4 flex items-center gap-2"><i class="fas fa-play-circle text-red-500"></i> Featured Video Lectures</h2>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            ${webData.video1 && extractYouTubeId(webData.video1) ? `
+                                <div class="aspect-video rounded-2xl overflow-hidden bg-black shadow-xl">
+                                    <iframe class="w-full h-full" src="https://www.youtube-nocookie.com/embed/${extractYouTubeId(webData.video1)}?rel=0" frameborder="0" allowfullscreen></iframe>
+                                </div>` : ''}
+                            ${webData.video2 && extractYouTubeId(webData.video2) ? `
+                                <div class="aspect-video rounded-2xl overflow-hidden bg-black shadow-xl">
+                                    <iframe class="w-full h-full" src="https://www.youtube-nocookie.com/embed/${extractYouTubeId(webData.video2)}?rel=0" frameborder="0" allowfullscreen></iframe>
+                                </div>` : ''}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Third-Party Embed Widget (Google Forms, Notion, Map, etc.) -->
+                ${(webData.widgetUrl && activeBlocks["builder-block-widgets"] !== false) ? `
+                    <div class="mt-10">
+                        <h2 class="text-sm font-bold uppercase tracking-wider opacity-80 mb-4 flex items-center gap-2"><i class="fas fa-layer-group ${theme.accent}"></i> ${escapeHTML(webData.widgetTitle || 'Interactive Embed Desk')}</h2>
+                        <div class="w-full h-80 rounded-2xl overflow-hidden ${theme.cardBg} border shadow-lg">
+                            <iframe src="${webData.widgetUrl}" class="w-full h-full" frameborder="0"></iframe>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Testimonials -->
+                ${activeBlocks["builder-block-testimonials"] !== false ? `
+                    <div class="mt-10">
+                        <h2 class="text-sm font-bold uppercase tracking-wider opacity-80 mb-4 flex items-center gap-2"><i class="fas fa-quote-left text-amber-400"></i> Student Testimonials</h2>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="p-4 rounded-2xl ${theme.cardBg} border">
+                                <div class="flex text-amber-400 text-xs mb-2">★★★★★</div>
+                                <p class="text-xs opacity-90 italic mb-3">"${escapeHTML(webData.testi1Text || "Sir's conceptual series made all the difference.")}"</p>
+                                <div class="font-bold text-xs opacity-80">— ${escapeHTML(webData.testi1Name || "Rahim Ahmed")}</div>
+                            </div>
+                            <div class="p-4 rounded-2xl ${theme.cardBg} border">
+                                <div class="flex text-amber-400 text-xs mb-2">★★★★★</div>
+                                <p class="text-xs opacity-90 italic mb-3">"${escapeHTML(webData.testi2Text || "The problem sheets and guidance were top notch.")}"</p>
+                                <div class="font-bold text-xs opacity-80">— ${escapeHTML(webData.testi2Name || "Sadia Karim")}</div>
                             </div>
                         </div>
-                    `).join("") : `<div class="col-span-2 text-center text-gray-500 py-6 text-xs dark-card">No courses published yet.</div>`}
-                </div>
-            </div>
-
-            <!-- Demo Videos -->
-            ${(webData.video1 || webData.video2) ? `
-                <div class="px-6 mt-8">
-                    <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><i class="fas fa-play text-red-400"></i> Featured Lectures</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        ${webData.video1 && extractYouTubeId(webData.video1) ? `
-                            <div class="aspect-video rounded-xl overflow-hidden bg-black">
-                                <iframe class="w-full h-full" src="https://www.youtube-nocookie.com/embed/${extractYouTubeId(webData.video1)}?rel=0" frameborder="0" allowfullscreen></iframe>
-                            </div>` : ''}
-                        ${webData.video2 && extractYouTubeId(webData.video2) ? `
-                            <div class="aspect-video rounded-xl overflow-hidden bg-black">
-                                <iframe class="w-full h-full" src="https://www.youtube-nocookie.com/embed/${extractYouTubeId(webData.video2)}?rel=0" frameborder="0" allowfullscreen></iframe>
-                            </div>` : ''}
                     </div>
-                </div>` : ''}
+                ` : ''}
+
+                <!-- FAQ Accordion -->
+                ${activeBlocks["builder-block-faq"] !== false && (webData.faqQ1 || webData.faqQ2) ? `
+                    <div class="mt-10">
+                        <h2 class="text-sm font-bold uppercase tracking-wider opacity-80 mb-4 flex items-center gap-2"><i class="fas fa-question-circle text-sky-400"></i> Frequently Asked Questions</h2>
+                        <div class="space-y-3">
+                            ${webData.faqQ1 ? `
+                                <div class="p-4 rounded-2xl ${theme.cardBg} border">
+                                    <div class="font-bold text-xs mb-1.5 flex items-center gap-2 text-sky-300"><i class="fas fa-chevron-right text-[10px]"></i> ${escapeHTML(webData.faqQ1)}</div>
+                                    <p class="text-xs opacity-80 leading-relaxed">${escapeHTML(webData.faqA1 || 'Contact via WhatsApp for enrollment guidelines.')}</p>
+                                </div>
+                            ` : ''}
+                            ${webData.faqQ2 ? `
+                                <div class="p-4 rounded-2xl ${theme.cardBg} border">
+                                    <div class="font-bold text-xs mb-1.5 flex items-center gap-2 text-sky-300"><i class="fas fa-chevron-right text-[10px]"></i> ${escapeHTML(webData.faqQ2)}</div>
+                                    <p class="text-xs opacity-80 leading-relaxed">${escapeHTML(webData.faqA2 || 'All study notes and recorded masterclasses are available inside Lynk.')}</p>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Contact Chamber Footer -->
+                <div class="mt-12 p-6 rounded-3xl ${theme.cardBg} border flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
+                    <div>
+                        <div class="text-base font-black flex items-center gap-2">${escapeHTML(title)} <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${theme.chipBg}">Faculty Desk</span></div>
+                        <div class="text-xs opacity-75 mt-1">${escapeHTML(webData.chamber || 'Available for academic consultations & admission guidance.')}</div>
+                        ${webData.email ? `<div class="text-xs text-indigo-400 mt-1"><i class="far fa-envelope mr-1.5"></i> ${escapeHTML(webData.email)}</div>` : ''}
+                    </div>
+                    <div class="flex items-center gap-3">
+                        ${webData.whatsapp ? `
+                            <a href="https://wa.me/${webData.whatsapp.replace(/[^0-9]/g, '')}?text=Hello%20Teacher,%20I%20want%20to%20enroll" target="_blank" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition">
+                                <i class="fab fa-whatsapp text-sm"></i> Direct WhatsApp
+                            </a>` : ''}
+                        ${webData.telegram ? `
+                            <a href="${webData.telegram}" target="_blank" class="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition">
+                                <i class="fab fa-telegram-plane"></i> Telegram
+                            </a>` : ''}
+                    </div>
+                </div>
+
+                <!-- Footer Trademark -->
+                <footer class="mt-8 text-center text-[10px] opacity-50">
+                    Hosted officially on Lynk Educator Network · teacher.edu/${escapeHTML(handle)}
+                </footer>
+            </div>
         </div>
     `;
+
+    // Hook up interactive article readers
+    container.querySelectorAll(".teacher-article-card").forEach(card => {
+        card.onclick = () => {
+            const idx = card.dataset.artIdx;
+            const a = articles[idx];
+            if (!a) return;
+            openArticleReaderModal(a, title);
+        };
+    });
+}
+
+function openArticleReaderModal(article, teacherName) {
+    let modal = $("teacher-article-reader-modal");
+    if (!modal) {
+        modal = document.createElement("div");
+        modal.id = "teacher-article-reader-modal";
+        modal.className = "modal";
+        modal.innerHTML = `
+            <div class="modal-content max-w-2xl max-h-[85vh] overflow-y-auto p-6 relative">
+                <button id="close-reader-modal-btn" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-[var(--bg-soft)] text-gray-400 hover:text-white flex items-center justify-center text-sm"><i class="fas fa-times"></i></button>
+                <div class="flex items-center gap-2 mb-3">
+                    <span id="reader-category" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">Study Notes</span>
+                    <span id="reader-time" class="text-xs text-gray-400">4 min read</span>
+                </div>
+                <h2 id="reader-title" class="text-lg md:text-xl font-black mb-2"></h2>
+                <div class="text-xs text-indigo-400 font-medium mb-4 pb-3 border-b border-[var(--border-color)]" id="reader-author"></div>
+                <div id="reader-body" class="text-xs md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.querySelector("#close-reader-modal-btn").onclick = () => modal.classList.remove("active");
+        modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("active"); };
+    }
+    
+    modal.querySelector("#reader-category").textContent = article.category || "Study Notes";
+    modal.querySelector("#reader-time").textContent = article.readTime || "4 min read";
+    modal.querySelector("#reader-title").textContent = article.title || "";
+    modal.querySelector("#reader-author").textContent = `By ${teacherName} · Official Study Guide`;
+    modal.querySelector("#reader-body").textContent = article.body || "";
+    modal.classList.add("active");
 }
 
 // Facebook-Style Profile Photo Viewer Engine
