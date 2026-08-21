@@ -516,127 +516,263 @@ const REACTIONS = ["❤️", "😂", "😮", "😢", "😡", "👍"],
 let authMode = "login";
 
 function updateAuthUI() {
+    const isReg = authMode === "register";
     const rf = $("register-fields"),
+          lf = $("login-fields"),
           sub = $("auth-submit"),
-          tog = $("toggle-auth");
-    if (authMode === "register") { 
-      rf?.classList.remove("hidden"); 
-      if (sub) sub.textContent = "Sign Up"; 
-      if (tog) tog.textContent = "Have an account? Log in"; 
+          tog = $("toggle-auth"),
+          idInp = $("auth-identifier"),
+          nameInp = $("auth-nickname"),
+          emailInp = $("auth-email");
+
+    if (isReg) { 
+        rf?.classList.remove("hidden");
+        lf?.classList.add("hidden");
+        if (idInp) idInp.required = false;
+        if (nameInp) nameInp.required = true;
+        if (emailInp) emailInp.required = true;
+        if (sub) sub.textContent = "Sign Up"; 
+        if (tog) tog.textContent = "Have an account? Log in"; 
     } else { 
-      rf?.classList.add("hidden"); 
-      if (sub) sub.textContent = "Log In"; 
-      if (tog) tog.textContent = "Don't have an account? Sign up"; 
+        rf?.classList.add("hidden");
+        lf?.classList.remove("hidden");
+        if (idInp) idInp.required = true;
+        if (nameInp) nameInp.required = false;
+        if (emailInp) emailInp.required = false;
+        if (sub) sub.textContent = "Log In"; 
+        if (tog) tog.textContent = "Don't have an account? Sign up"; 
     }
 }
 $("toggle-auth")?.addEventListener("click", () => { 
-  authMode = authMode === "login" ? "register" : "login";
-  updateAuthUI(); 
+    authMode = authMode === "login" ? "register" : "login";
+    updateAuthUI(); 
 });
 
 $("auth-form")?.addEventListener("submit", async e => {
     e.preventDefault();
-    const id = $("auth-identifier")?.value.trim(),
-          pw = $("auth-password")?.value;
-    if (!id || !pw) { showToast("Please enter your credentials.", "error"); return; }
-    const isAdminLogin = (id.toLowerCase() === "admin.gmail.com" || id.toLowerCase() === "admin@gmail.com") && pw === ADMIN_PASSWORD;
-    if (isAdminLogin) {
-        showLoader("Signing in as Admin…");
-        try { await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pw); } 
-        catch (err) { showToast(getFirebaseErrorMessage(err), "error"); hideLoader(); }
-        return;
+    const pw = $("auth-password")?.value;
+    if (!pw || pw.length < 6) { 
+        showToast("Password must be at least 6 characters.", "error"); 
+        return; 
     }
-    showLoader(authMode === "login" ? "Logging in…" : "Creating account…");
-    try { 
-      if (authMode === "register") await registerUser(id, pw);
-      else await loginUser(id, pw); 
-    } catch (err) { 
-      showToast(getFirebaseErrorMessage(err), "error");
-      hideLoader(); 
+
+    if (authMode === "register") {
+        const nickname = $("auth-nickname")?.value.trim(),
+              email = $("auth-email")?.value.trim(),
+              phone = $("auth-phone")?.value.trim();
+        if (!nickname) {
+            showToast("Please enter your full name.", "error");
+            return;
+        }
+        if (!email || !email.includes("@")) {
+            showToast("Please enter a valid email address.", "error");
+            return;
+        }
+        showLoader("Creating account…");
+        try {
+            await registerUser(nickname, email, phone, pw);
+        } catch (err) {
+            console.error("Registration error:", err);
+            showToast(getFirebaseErrorMessage(err), "error");
+            hideLoader();
+        }
+    } else {
+        const id = $("auth-identifier")?.value.trim();
+        if (!id) { 
+            showToast("Please enter your email, username, or phone.", "error"); 
+            return; 
+        }
+        const isAdminLogin = (id.toLowerCase() === "admin.gmail.com" || id.toLowerCase() === "admin@gmail.com") && pw === ADMIN_PASSWORD;
+        if (isAdminLogin) {
+            showLoader("Signing in as Admin…");
+            try { 
+                await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pw); 
+            } catch (err) { 
+                showToast(getFirebaseErrorMessage(err), "error"); 
+                hideLoader(); 
+            }
+            return;
+        }
+        showLoader("Logging in…");
+        try { 
+            await loginUser(id, pw); 
+        } catch (err) { 
+            console.error("Login error:", err);
+            showToast(getFirebaseErrorMessage(err), "error");
+            hideLoader(); 
+        }
     }
 });
 
-async function registerUser(identifier, password) {
-    const email = $("auth-email")?.value.trim(),
-          nickname = $("auth-nickname")?.value.trim(),
-          phone = $("auth-phone")?.value.trim();
-    if (!email || !nickname) throw new Error("Please enter your name and email.");
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
+async function registerUser(nickname, email, phone, password) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
     const user = cred.user,
           username = await createUniqueUsername(nickname),
           kbId = await createUniqueKBID(),
           photoURL = user.photoURL || DEFAULT_AVATAR;
-    await firebaseUpdateProfile(user, { displayName: nickname, photoURL });
+    try {
+        await firebaseUpdateProfile(user, { displayName: nickname, photoURL });
+    } catch (_) {}
+
+    const cleanPhone = phone ? phone.trim().replace(/[\s\-()]/g, "") : "";
+
     const data = { 
-      uid: user.uid, email, nickname, username, phone: phone || "", bio: "", photoURL,
-      coverPhoto: DEFAULT_COVER, kbId, verified: false, suspended: false, online: true, privacy: "public",
-      createdAt: serverTimestamp(), lastSeen: serverTimestamp(), role: "user", walletBalance: 0,
-      teacherPhone: "", subject: "", institution: "", teacherUsername: "", gender: "", dob: "" 
+        uid: user.uid, 
+        email: cleanEmail, 
+        nickname: nickname.trim(), 
+        username, 
+        phone: cleanPhone, 
+        bio: "", 
+        photoURL,
+        coverPhoto: DEFAULT_COVER, 
+        kbId, 
+        verified: false, 
+        suspended: false, 
+        online: true, 
+        privacy: "public",
+        createdAt: serverTimestamp(), 
+        lastSeen: serverTimestamp(), 
+        role: "user", 
+        walletBalance: 0,
+        teacherPhone: "", 
+        subject: "", 
+        institution: "", 
+        teacherUsername: "", 
+        gender: "", 
+        dob: "" 
     };
+
     await set(ref(db, `users/${user.uid}`), data);
     await set(ref(db, `kbIds/${kbId}`), user.uid);
-    await set(ref(db, `usernames/${username}`), user.uid);
-    showToast("Account created!", "success");
+    await set(ref(db, `usernames/${username.toLowerCase()}`), user.uid);
+    if (cleanPhone) {
+        await set(ref(db, `phones/${cleanPhone}`), user.uid).catch(() => {});
+        if (cleanPhone.startsWith("+88")) {
+            await set(ref(db, `phones/${cleanPhone.slice(3)}`), user.uid).catch(() => {});
+        } else if (cleanPhone.startsWith("01")) {
+            await set(ref(db, `phones/+88${cleanPhone}`), user.uid).catch(() => {});
+        }
+    }
+    showToast("Account created successfully! Welcome to Lynk.", "success");
 }
 
 async function createUniqueUsername(name) {
     let base = String(name).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 15) || "user";
     let username = base, c = 1;
     while (true) { 
-      const s = await get(ref(db, `usernames/${username}`)); 
-      if (!s.exists()) return username;
-      username = base + c++; 
+        try {
+            const s = await get(ref(db, `usernames/${username}`)); 
+            if (!s.exists()) return username;
+        } catch (_) {
+            return `${base}${Math.floor(1000 + Math.random() * 9000)}`;
+        }
+        username = base + c++; 
     }
 }
 
 async function createUniqueKBID() {
     while (true) { 
-      const kbId = `KB${Math.floor(100000 + Math.random() * 900000)}`; 
-      const s = await get(ref(db, `kbIds/${kbId}`)); 
-      if (!s.exists()) return kbId; 
+        const kbId = `KB${Math.floor(100000 + Math.random() * 900000)}`; 
+        try {
+            const s = await get(ref(db, `kbIds/${kbId}`)); 
+            if (!s.exists()) return kbId; 
+        } catch (_) {
+            return kbId;
+        }
     }
 }
 
 async function loginUser(identifier, password) {
-    if (identifier.includes("@")) { 
-      await signInWithEmailAndPassword(auth, identifier, password); 
-      return; 
+    const raw = identifier.trim();
+    if (raw.includes("@")) { 
+        await signInWithEmailAndPassword(auth, raw.toLowerCase(), password); 
+        return; 
     }
-    const uid = await resolveIdentifier(identifier);
-    if (!uid) throw new Error("User not found.");
+    const uid = await resolveIdentifier(raw);
+    if (!uid) throw new Error("Account not found. Please check your username, phone, or email.");
     const snap = await get(ref(db, `users/${uid}`));
-    if (!snap.exists()) throw new Error("Profile not found.");
+    if (!snap.exists() || !snap.val().email) throw new Error("Profile not found for this account.");
     await signInWithEmailAndPassword(auth, snap.val().email, password);
 }
 
 async function resolveIdentifier(identifier) {
-    const lower = identifier.trim().toLowerCase();
-    let s = await get(ref(db, `usernames/${lower}`));
-    if (s.exists()) return s.val();
-    const kbId = identifier.trim().toUpperCase();
-    s = await get(ref(db, `kbIds/${kbId}`));
-    if (s.exists()) return s.val();
+    const raw = identifier.trim();
+    const lower = raw.toLowerCase();
+    
+    // 1. Check direct usernames
+    try {
+        const checkName = lower.startsWith("@") ? lower.slice(1) : lower;
+        let s = await get(ref(db, `usernames/${checkName}`));
+        if (s.exists()) return s.val();
+    } catch (_) {}
+
+    // 2. Check KB-IDs
+    try {
+        const kbId = raw.toUpperCase();
+        let s = await get(ref(db, `kbIds/${kbId}`));
+        if (s.exists()) return s.val();
+    } catch (_) {}
+
+    // 3. Check Phone numbers
+    try {
+        const cleanPhone = raw.replace(/[\s\-()]/g, "");
+        let s = await get(ref(db, `phones/${cleanPhone}`));
+        if (s.exists()) return s.val();
+        if (cleanPhone.startsWith("01")) {
+            s = await get(ref(db, `phones/+88${cleanPhone}`));
+            if (s.exists()) return s.val();
+        } else if (cleanPhone.startsWith("+88")) {
+            s = await get(ref(db, `phones/${cleanPhone.slice(3)}`));
+            if (s.exists()) return s.val();
+        }
+    } catch (_) {}
+
+    // 4. Fallback search inside users node
+    try {
+        const usersSnap = await get(ref(db, "users"));
+        if (usersSnap.exists()) {
+            const allUsers = usersSnap.val();
+            const cleanRawPhone = raw.replace(/[\s\-()]/g, "");
+            for (const uid in allUsers) {
+                const u = allUsers[uid];
+                if (!u) continue;
+                if (u.username && u.username.toLowerCase() === lower) return uid;
+                if (u.kbId && u.kbId.toUpperCase() === raw.toUpperCase()) return uid;
+                if (u.email && u.email.toLowerCase() === lower) return uid;
+                if (u.phone && cleanRawPhone) {
+                    const uPhone = String(u.phone).replace(/[\s\-()]/g, "");
+                    if (uPhone && (uPhone === cleanRawPhone || uPhone.endsWith(cleanRawPhone) || cleanRawPhone.endsWith(uPhone))) {
+                        return uid;
+                    }
+                }
+            }
+        }
+    } catch (_) {}
+
     return null;
 }
 
 async function logoutUser() { 
-  try { 
-    await clearPusherBeamsInterests();
-    await removePresence();
-    await signOut(auth);
-    showToast("Logged out.", "success"); 
-  } catch (e) { 
-    console.error(e); 
-  } 
+    try { 
+        await clearPusherBeamsInterests();
+        await removePresence();
+        await signOut(auth);
+        showToast("Logged out successfully.", "success"); 
+    } catch (e) { 
+        console.error(e); 
+    } 
 }
 
 // Presence handling
 async function setPresence() {
     if (!currentUser) return;
-    const pr = ref(db, `presence/${currentUser.uid}`);
-    await set(pr, { online: true, lastSeen: serverTimestamp() });
-    onDisconnect(pr).set({ online: false, lastSeen: serverTimestamp() });
-    await update(ref(db, `users/${currentUser.uid}`), { online: true, lastSeen: serverTimestamp() });
+    try {
+        const pr = ref(db, `presence/${currentUser.uid}`);
+        await set(pr, { online: true, lastSeen: serverTimestamp() });
+        onDisconnect(pr).set({ online: false, lastSeen: serverTimestamp() });
+        await update(ref(db, `users/${currentUser.uid}`), { online: true, lastSeen: serverTimestamp() });
+    } catch (_) {}
 }
 
 async function removePresence() {
@@ -646,17 +782,19 @@ async function removePresence() {
 }
 
 function listenToPresence(uid, cb) { 
-  return onValue(ref(db, `presence/${uid}`), s => cb(s.val() || { online: false })); 
+    return onValue(ref(db, `presence/${uid}`), s => cb(s.val() || { online: false })); 
 }
 
 async function getUserByUID(uid, forceFresh = false) {
     if (!uid) return null;
     if (!forceFresh) { 
-      const cached = getCachedUser(uid); 
-      if (cached) return cached; 
+        const cached = getCachedUser(uid); 
+        if (cached) return cached; 
     }
-    const s = await get(ref(db, `users/${uid}`));
-    if (s.exists()) { setCachedUser(uid, s.val()); return s.val(); }
+    try {
+        const s = await get(ref(db, `users/${uid}`));
+        if (s.exists()) { setCachedUser(uid, s.val()); return s.val(); }
+    } catch (_) {}
     return null;
 }
 
@@ -670,13 +808,6 @@ window.getUserByUID = getUserByUID;
 
 // Auth observer
 onAuthStateChanged(auth, async user => {
-    const safetyTimer = setTimeout(() => {
-        if (!initDone) {
-            hideLoader();
-            initDone = true;
-        }
-    }, 4000);
-
     try {
         if (!user) {
             currentUser = null;
@@ -684,84 +815,92 @@ onAuthStateChanged(auth, async user => {
             isAdmin = false;
             showView("auth-view");
             hideLoader();
-            clearTimeout(safetyTimer);
             return;
         }
 
         currentUser = user;
-        showLoader("Loading your profile…");
+        
+        // Fast initial profile to ensure immediate screen transition
+        currentUserData = getCachedUser(user.uid) || {
+            uid: user.uid,
+            email: user.email || "",
+            nickname: user.displayName || user.email?.split("@")[0] || "User",
+            username: user.email ? user.email.split("@")[0] : "user",
+            photoURL: user.photoURL || DEFAULT_AVATAR
+        };
 
-        let profileSnap = null;
+        // Immediately transition to app-view
+        showView("app-view");
+        hideLoader();
+
+        // Fetch fresh profile from Realtime DB in background
         try {
-            const profilePromise = get(ref(db, `users/${user.uid}`));
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000));
-            profileSnap = await Promise.race([profilePromise, timeoutPromise]);
-        } catch (_) {}
-
-        if (!profileSnap || !profileSnap.exists()) {
-            await ensureUserProfile(user);
-            profileSnap = await get(ref(db, `users/${user.uid}`));
-        }
-
-        if (profileSnap && profileSnap.exists()) {
-            currentUserData = profileSnap.val();
-            setCachedUser(user.uid, currentUserData);
-        } else {
-            currentUserData = {
-                uid: user.uid,
-                email: user.email || "",
-                nickname: user.displayName || "User",
-                username: user.email ? user.email.split("@")[0] : "user",
-                photoURL: user.photoURL || DEFAULT_AVATAR
-            };
+            const profileSnap = await get(ref(db, `users/${user.uid}`));
+            if (profileSnap.exists()) {
+                currentUserData = profileSnap.val();
+                setCachedUser(user.uid, currentUserData);
+            } else {
+                await ensureUserProfile(user);
+                const freshSnap = await get(ref(db, `users/${user.uid}`));
+                if (freshSnap.exists()) {
+                    currentUserData = freshSnap.val();
+                    setCachedUser(user.uid, currentUserData);
+                }
+            }
+        } catch (e) {
+            console.warn("User profile background fetch error:", e);
         }
 
         isAdmin = currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
         if (isAdmin && currentUser?.uid) {
-            await set(ref(db, `admins/${currentUser.uid}`), { role: "admin", email: ADMIN_EMAIL });
+            set(ref(db, `admins/${currentUser.uid}`), { role: "admin", email: ADMIN_EMAIL }).catch(() => {});
         }
 
         if (currentUserData && (!currentUserData.gender || !currentUserData.dob)) {
-            if (!mandatoryCheckDone) setTimeout(() => showMandatoryModal(), 300);
+            if (!mandatoryCheckDone) setTimeout(() => showMandatoryModal(), 400);
         } else {
             mandatoryCheckDone = true;
         }
 
-        try { await setPresence(); } catch (_) {}
+        try { setPresence(); } catch (_) {}
 
-        showView("app-view");
         const hash = location.hash.slice(1) || "feed";
         const validPages = ["feed", "chats", "courses", "wallet", "search", "friends", "support", "profile", "admin", "settings", "user-profile", "teacher-dashboard", "teacher-builder", "teacher-web", "content-viewer", "videos"];
         if (validPages.includes(hash)) showPage(hash);
         else showPage("feed");
 
-        renderProfile();
-        loadFeed();
-        loadNotes();
-        await loadFriends();
-        loadChatList();
-        loadFriendRequests();
-        loadBlocked();
-        loadFollowing();
-        loadFollowers();
-        loadStories();
-        loadVerificationRequests();
-        if (isAdmin) { loadAdminUsers(); loadAdminSupportInbox(); }
-        setupStoryModal();
-        setupMessageNotifications();
-        setupUserNotificationListener();
-        initMentionAutocomplete();
-        setupProfileTabs();
-        loadCourses();
-        loadWallet();
-        loadTeacherDashboard();
-        loadWithdrawHistory();
-        if (isAdmin) { loadAdminRechargeCodes(); loadAdminWithdrawals(); }
+        // Asynchronously load features in non-blocking safe try-catch blocks
+        try { renderProfile(); } catch (_) {}
+        try { loadFeed(); } catch (_) {}
+        try { loadNotes(); } catch (_) {}
+        try { loadFriends(); } catch (_) {}
+        try { loadChatList(); } catch (_) {}
+        try { loadFriendRequests(); } catch (_) {}
+        try { loadBlocked(); } catch (_) {}
+        try { loadFollowing(); } catch (_) {}
+        try { loadFollowers(); } catch (_) {}
+        try { loadStories(); } catch (_) {}
+        try { loadVerificationRequests(); } catch (_) {}
+        if (isAdmin) { 
+            try { loadAdminUsers(); loadAdminSupportInbox(); } catch (_) {}
+        }
+        try { setupStoryModal(); } catch (_) {}
+        try { setupMessageNotifications(); } catch (_) {}
+        try { setupUserNotificationListener(); } catch (_) {}
+        try { initMentionAutocomplete(); } catch (_) {}
+        try { setupProfileTabs(); } catch (_) {}
+        try { loadCourses(); } catch (_) {}
+        try { loadWallet(); } catch (_) {}
+        try { loadTeacherDashboard(); } catch (_) {}
+        try { loadWithdrawHistory(); } catch (_) {}
+        if (isAdmin) { 
+            try { loadAdminRechargeCodes(); loadAdminWithdrawals(); } catch (_) {}
+        }
 
-        setupNavigation();
-        startProfileListener();
-        updateSettingsUI();
-        updateRoleUI();
+        try { setupNavigation(); } catch (_) {}
+        try { startProfileListener(); } catch (_) {}
+        try { updateSettingsUI(); } catch (_) {}
+        try { updateRoleUI(); } catch (_) {}
 
         if (currentUserData) {
             const composerAvatar = $("composer-user-avatar");
@@ -771,69 +910,112 @@ onAuthStateChanged(auth, async user => {
         }
 
         // Initialize Agora Voice & SD Video Call Manager
-        initAgoraCallManager({
-            db, ref, set, get, update, onValue, remove, push, serverTimestamp,
-            getCurrentUser: () => currentUser,
-            getCurrentUserData: () => currentUserData
-        });
-        startIncomingCallListener(user.uid);
+        try {
+            initAgoraCallManager({
+                db, ref, set, get, update, onValue, remove, push, serverTimestamp,
+                getCurrentUser: () => currentUser,
+                getCurrentUserData: () => currentUserData
+            });
+            startIncomingCallListener(user.uid);
+        } catch (e) {
+            console.warn("Agora call manager init notice:", e);
+        }
 
         // Initialize Group Chat Manager
-        initGroupChatManager({
-            db, ref, set, get, update, onValue, remove, push, serverTimestamp,
-            getCurrentUser: () => currentUser,
-            getCurrentUserData: () => currentUserData
-        });
+        try {
+            initGroupChatManager({
+                db, ref, set, get, update, onValue, remove, push, serverTimestamp,
+                getCurrentUser: () => currentUser,
+                getCurrentUserData: () => currentUserData
+            });
+        } catch (e) {
+            console.warn("Group chat manager init notice:", e);
+        }
 
-        // Initialize Push Notifications (Capacitor Native + Pusher Beams)
-        if (window.initCapacitorPush) {
-            window.initCapacitorPush(user.uid);
-        } else {
-            initPusherBeams(user.uid);
+        // Initialize Push Notifications
+        try {
+            if (window.initCapacitorPush) {
+                window.initCapacitorPush(user.uid);
+            } else {
+                initPusherBeams(user.uid);
+            }
+        } catch (e) {
+            console.warn("Push notification init notice:", e);
         }
 
         initDone = true;
-        hideLoader();
-        clearTimeout(safetyTimer);
     } catch (err) {
-        console.error("Auth init error:", err);
+        console.error("Auth observer error:", err);
+        showView("app-view");
         hideLoader();
-        clearTimeout(safetyTimer);
         initDone = true;
     }
 });
 
 async function ensureUserProfile(user) {
-    const ur = ref(db, `users/${user.uid}`);
-    const s = await get(ur);
-    if (s.exists()) return;
-    const nickname = user.displayName || "User",
-          username = await createUniqueUsername(nickname),
-          kbId = await createUniqueKBID(),
-          photoURL = user.photoURL || DEFAULT_AVATAR;
-    const data = { 
-      uid: user.uid, email: user.email || "", nickname, username, phone: "", bio: "", photoURL,
-      coverPhoto: DEFAULT_COVER, kbId, verified: false, suspended: false, online: true, privacy: "public",
-      createdAt: serverTimestamp(), lastSeen: serverTimestamp(), role: "user", walletBalance: 0,
-      teacherPhone: "", subject: "", institution: "", teacherUsername: "", gender: "", dob: "" 
-    };
-    await set(ur, data);
-    await set(ref(db, `kbIds/${kbId}`), user.uid);
-    await set(ref(db, `usernames/${username}`), user.uid);
+    try {
+        const ur = ref(db, `users/${user.uid}`);
+        const s = await get(ur);
+        if (s.exists()) return;
+        const nickname = user.displayName || user.email?.split("@")[0] || "User",
+              username = await createUniqueUsername(nickname),
+              kbId = await createUniqueKBID(),
+              photoURL = user.photoURL || DEFAULT_AVATAR;
+        const data = { 
+            uid: user.uid, 
+            email: user.email || "", 
+            nickname, 
+            username, 
+            phone: "", 
+            bio: "", 
+            photoURL,
+            coverPhoto: DEFAULT_COVER, 
+            kbId, 
+            verified: false, 
+            suspended: false, 
+            online: true, 
+            privacy: "public",
+            createdAt: serverTimestamp(), 
+            lastSeen: serverTimestamp(), 
+            role: "user", 
+            walletBalance: 0,
+            teacherPhone: "", 
+            subject: "", 
+            institution: "", 
+            teacherUsername: "", 
+            gender: "", 
+            dob: "" 
+        };
+        await set(ur, data);
+        await set(ref(db, `kbIds/${kbId}`), user.uid);
+        await set(ref(db, `usernames/${username.toLowerCase()}`), user.uid);
+    } catch (err) {
+        console.error("ensureUserProfile error:", err);
+    }
 }
 
 function showMandatoryModal() {
     const modal = $("mandatory-modal");
     if (!modal) return;
     modal.classList.add("active");
-    $("mandatory-gender").value = "";
-    $("mandatory-dob").value = "";
+    if ($("mandatory-gender")) $("mandatory-gender").value = "";
+    if ($("mandatory-dob")) $("mandatory-dob").value = "";
     $("mandatory-error")?.classList.add("hidden");
 }
 
+$("close-mandatory-modal")?.addEventListener("click", () => {
+    $("mandatory-modal")?.classList.remove("active");
+    mandatoryCheckDone = true;
+});
+
+$("mandatory-skip")?.addEventListener("click", () => {
+    $("mandatory-modal")?.classList.remove("active");
+    mandatoryCheckDone = true;
+});
+
 $("mandatory-submit")?.addEventListener("click", async () => {
-    const gender = $("mandatory-gender").value;
-    const dob = $("mandatory-dob").value;
+    const gender = $("mandatory-gender")?.value;
+    const dob = $("mandatory-dob")?.value;
     if (!gender || !dob) {
         const err = $("mandatory-error");
         if (err) { err.textContent = "Please fill in both fields."; err.classList.remove("hidden"); }
@@ -846,14 +1028,14 @@ $("mandatory-submit")?.addEventListener("click", async () => {
         invalidateUser(currentUser.uid);
         const snap = await get(ref(db, `users/${currentUser.uid}`));
         if (snap.exists()) { 
-          currentUserData = snap.val();
-          setCachedUser(currentUser.uid, currentUserData); 
+            currentUserData = snap.val();
+            setCachedUser(currentUser.uid, currentUserData); 
         }
         mandatoryCheckDone = true;
-        $("mandatory-modal").classList.remove("active");
+        $("mandatory-modal")?.classList.remove("active");
         showToast("Profile updated!", "success");
     } catch (e) { 
-      showToast("Could not save.", "error"); 
+        showToast("Could not save.", "error"); 
     }
     hideLoader();
 });
