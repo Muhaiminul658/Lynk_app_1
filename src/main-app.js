@@ -5040,12 +5040,16 @@ async function loadTeacherBuilder() {
     }
 
     // Studio Tabs Navigation
-    document.querySelectorAll(".builder-tab-btn").forEach(btn => {
+    document.querySelectorAll(".builder-nav-tab, .builder-tab-btn").forEach(btn => {
         btn.onclick = () => {
-            document.querySelectorAll(".builder-tab-btn").forEach(b => b.classList.remove("active"));
-            btn.classList.add("active");
+            document.querySelectorAll(".builder-nav-tab, .builder-tab-btn").forEach(b => {
+                b.classList.remove("active", "bg-indigo-600", "text-white");
+                b.classList.add("bg-[var(--bg-soft)]", "text-gray-400");
+            });
+            btn.classList.add("active", "bg-indigo-600", "text-white");
+            btn.classList.remove("bg-[var(--bg-soft)]", "text-gray-400");
             const tab = btn.dataset.tab;
-            document.querySelectorAll(".builder-tab-content").forEach(c => c.classList.add("hidden"));
+            document.querySelectorAll(".builder-tab-panel, .builder-tab-content").forEach(c => c.classList.add("hidden"));
             const target = $(`builder-tab-content-${tab}`);
             if (target) target.classList.remove("hidden");
             if (tab === "preview") {
@@ -5057,33 +5061,59 @@ async function loadTeacherBuilder() {
     // Theme selector
     document.querySelectorAll(".builder-theme-btn").forEach(btn => {
         btn.onclick = () => {
-            document.querySelectorAll(".builder-theme-btn").forEach(b => b.classList.remove("border-emerald-500", "bg-emerald-500/10"));
-            btn.classList.add("border-emerald-500", "bg-emerald-500/10");
+            document.querySelectorAll(".builder-theme-btn").forEach(b => {
+                b.classList.remove("border-indigo-500", "bg-indigo-600/20", "border-emerald-500", "bg-emerald-500/10");
+                b.classList.add("border-[var(--border-color)]", "bg-[var(--bg-soft)]");
+            });
+            btn.classList.remove("border-[var(--border-color)]", "bg-[var(--bg-soft)]");
+            btn.classList.add("border-indigo-500", "bg-indigo-600/20");
             builderCurrentTheme = btn.dataset.theme;
+            renderBuilderLivePreview();
         };
     });
 
     // Content Block Toggle Switches
     const blockToggles = [
-        { sw: "builder-block-announcement", target: "builder-announcement-block" },
-        { sw: "builder-block-social", target: "builder-social-block" },
-        { sw: "builder-block-courses", target: "builder-courses-block" },
-        { sw: "builder-block-videos", target: "builder-videos-block" },
-        { sw: "builder-block-stats", target: "builder-stats-block" },
-        { sw: "builder-block-testimonials", target: "builder-testimonials-block" },
-        { sw: "builder-block-faq", target: "builder-faq-block" },
-        { sw: "builder-block-widgets", target: "builder-widgets-block" }
+        { sw: "block-announcement", swAlt: "builder-block-announcement", target: "builder-announcement-wrap", targetAlt: "builder-announcement-block" },
+        { sw: "block-social", swAlt: "builder-block-social", target: "builder-social-block", targetAlt: "builder-social-block" },
+        { sw: "block-courses", swAlt: "builder-block-courses", target: "builder-courses-block", targetAlt: "builder-courses-block" },
+        { sw: "block-videos", swAlt: "builder-block-videos", target: "builder-videos-fields", targetAlt: "builder-videos-block" },
+        { sw: "block-stats", swAlt: "builder-block-stats", target: "builder-stats-fields", targetAlt: "builder-stats-block" },
+        { sw: "block-testimonials", swAlt: "builder-block-testimonials", target: "builder-testimonials-wrap", targetAlt: "builder-testimonials-block" },
+        { sw: "block-faq", swAlt: "builder-block-faq", target: "builder-faq-fields", targetAlt: "builder-faq-block" },
+        { sw: "block-widget", swAlt: "builder-block-widgets", target: "builder-widget-wrap", targetAlt: "builder-widgets-block" }
     ];
 
-    blockToggles.forEach(({ sw, target }) => {
-        const swEl = $(sw);
+    blockToggles.forEach(({ sw, swAlt, target, targetAlt }) => {
+        const swEl = $(sw) || $(swAlt);
         if (swEl) {
             swEl.onclick = () => {
                 swEl.classList.toggle("active");
-                const targetEl = $(target);
+                const targetEl = $(target) || $(targetAlt);
                 if (targetEl) targetEl.classList.toggle("hidden", !swEl.classList.contains("active"));
             };
         }
+    });
+
+    // Viewport preview switches
+    document.querySelectorAll(".builder-viewport-btn").forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll(".builder-viewport-btn").forEach(b => {
+                b.classList.remove("bg-indigo-600", "text-white", "active");
+                b.classList.add("text-gray-400");
+            });
+            btn.classList.add("bg-indigo-600", "text-white", "active");
+            btn.classList.remove("text-gray-400");
+            const vp = btn.dataset.viewport;
+            const stage = $("builder-live-preview-stage");
+            if (stage) {
+                if (vp === "mobile") {
+                    stage.classList.add("max-w-sm", "mx-auto", "shadow-2xl", "border-4", "border-indigo-500/50");
+                } else {
+                    stage.classList.remove("max-w-sm", "mx-auto", "shadow-2xl", "border-4", "border-indigo-500/50");
+                }
+            }
+        };
     });
 
     // Fetch existing teacher website configuration
@@ -5279,8 +5309,12 @@ function openArticleModal(idx = null) {
 // Navigation & Modals Wiring
 $("builder-back")?.addEventListener("click", () => showPage("teacher-dashboard"));
 
-$("builder-add-link-btn")?.addEventListener("click", () => openLinkModal(null));
-$("builder-close-link-modal")?.addEventListener("click", () => $("builder-link-modal")?.classList.remove("active"));
+document.querySelectorAll("#builder-add-custom-link-btn, #builder-add-link-btn").forEach(btn => {
+    btn?.addEventListener("click", () => openLinkModal(null));
+});
+document.querySelectorAll("#close-builder-link-modal, #builder-close-link-modal").forEach(btn => {
+    btn?.addEventListener("click", () => $("builder-link-modal")?.classList.remove("active"));
+});
 $("builder-save-link-btn")?.addEventListener("click", () => {
     const title = $("builder-link-input-title")?.value.trim();
     const url = $("builder-link-input-url")?.value.trim();
@@ -5312,8 +5346,12 @@ $("builder-save-link-btn")?.addEventListener("click", () => {
     showToast("Link added to website menu! 🔗", "success");
 });
 
-$("builder-add-article-btn")?.addEventListener("click", () => openArticleModal(null));
-$("builder-close-article-modal")?.addEventListener("click", () => $("builder-article-modal")?.classList.remove("active"));
+document.querySelectorAll("#builder-add-article-btn").forEach(btn => {
+    btn?.addEventListener("click", () => openArticleModal(null));
+});
+document.querySelectorAll("#close-builder-article-modal, #builder-close-article-modal").forEach(btn => {
+    btn?.addEventListener("click", () => $("builder-article-modal")?.classList.remove("active"));
+});
 $("builder-save-article-btn")?.addEventListener("click", () => {
     const title = $("builder-article-input-title")?.value.trim();
     const category = $("builder-article-input-cat")?.value.trim() || "Study Notes";
@@ -5344,22 +5382,22 @@ $("builder-save-article-btn")?.addEventListener("click", () => {
     showToast("Article published! ✍️", "success");
 });
 
-// Viewport Switcher in Live Preview
-$("builder-preview-viewport-desktop")?.addEventListener("click", () => {
-    $("builder-preview-viewport-desktop").classList.add("bg-emerald-500", "text-black");
-    $("builder-preview-viewport-desktop").classList.remove("text-gray-400");
-    $("builder-preview-viewport-mobile").classList.remove("bg-emerald-500", "text-black");
-    $("builder-preview-viewport-mobile").classList.add("text-gray-400");
-    $("builder-preview-frame")?.classList.remove("max-w-sm", "border-4", "border-slate-700", "rounded-3xl");
+$("builder-preview-toggle-btn")?.addEventListener("click", () => {
+    const previewTabBtn = document.querySelector('.builder-nav-tab[data-tab="preview"], .builder-tab-btn[data-tab="preview"]');
+    if (previewTabBtn) previewTabBtn.click();
 });
 
-$("builder-preview-viewport-mobile")?.addEventListener("click", () => {
-    $("builder-preview-viewport-mobile").classList.add("bg-emerald-500", "text-black");
-    $("builder-preview-viewport-mobile").classList.remove("text-gray-400");
-    $("builder-preview-viewport-desktop").classList.remove("bg-emerald-500", "text-black");
-    $("builder-preview-viewport-desktop").classList.add("text-gray-400");
-    $("builder-preview-frame")?.classList.add("max-w-sm", "border-4", "border-slate-700", "rounded-3xl");
+$("builder-view-live-btn")?.addEventListener("click", () => {
+    const handle = $("builder-handle")?.value.trim() || currentUserData?.teacherUsername || currentUserData?.username;
+    if (!handle) {
+        showToast("Please save a domain name first.", "info");
+        return;
+    }
+    window._teacherWebHandle = handle;
+    showPage("teacher-web");
 });
+
+$("dash-open-builder")?.addEventListener("click", () => showPage("teacher-builder"));
 
 $("builder-banner-drop")?.addEventListener("click", () => $("builder-banner-file")?.click());
 $("builder-banner-file")?.addEventListener("change", async e => {
@@ -5368,9 +5406,20 @@ $("builder-banner-file")?.addEventListener("change", async e => {
     const reader = new FileReader();
     reader.onload = ev => {
         const preview = $("builder-banner-preview");
-        if (preview) { preview.src = ev.target.result; preview.classList.remove("hidden"); }
+        if (preview) { preview.src = ev.target.result; }
+        const wrap = $("builder-banner-preview-wrap");
+        if (wrap) wrap.classList.remove("hidden");
     };
     reader.readAsDataURL(file);
+});
+$("builder-banner-remove-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const fileInp = $("builder-banner-file");
+    if (fileInp) fileInp.value = "";
+    const preview = $("builder-banner-preview");
+    if (preview) preview.src = "";
+    const wrap = $("builder-banner-preview-wrap");
+    if (wrap) wrap.classList.add("hidden");
 });
 
 $("builder-save-handle")?.addEventListener("click", async () => {
@@ -5387,6 +5436,10 @@ $("builder-save-handle")?.addEventListener("click", async () => {
         showToast(`Domain registered: teacher.edu/${handle} 🌐`, "success");
     } catch (_) { showToast("Could not register handle.", "error"); }
     hideLoader();
+});
+
+document.querySelectorAll("#builder-publish, #builder-publish-btn, #builder-quick-save").forEach(btn => {
+    btn?.addEventListener("click", saveTeacherWebsiteData);
 });
 
 async function saveTeacherWebsiteData() {
@@ -5467,9 +5520,6 @@ async function saveTeacherWebsiteData() {
     }
     hideLoader();
 }
-
-$("builder-publish-btn")?.addEventListener("click", saveTeacherWebsiteData);
-$("builder-quick-save")?.addEventListener("click", saveTeacherWebsiteData);
 
 function renderBuilderLivePreview() {
     const stage = $("builder-live-preview-stage");
